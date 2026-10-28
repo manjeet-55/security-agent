@@ -1,0 +1,24 @@
+id: ports-exposed
+type: port_exposure
+title: Admin and database ports are not reachable from this network
+severity: high
+applies_to: [host]
+params:
+  ports:
+    - { port: 21, service: ftp, severity: medium }
+    - { port: 22, service: ssh, severity: medium }
+    - { port: 23, service: telnet, severity: high }
+    - { port: 2375, service: docker-api, severity: critical }
+    - { port: 3306, service: mysql, severity: high }
+    - { port: 5432, service: postgres, severity: high }
+    - { port: 6379, service: redis, severity: high }
+    - { port: 9200, service: elasticsearch, severity: high }
+    - { port: 11211, service: memcached, severity: high }
+    - { port: 27017, service: mongodb, severity: high }
+  liveness_ports: [80, 443]
+  concurrency: 4
+fix_hints:
+  any: 'Restrict the security group/firewall: SSH only from a VPN/office range or replace it with SSM Session Manager; database ports only from the application security group. If this scan ran from an allowlisted network, the port may be correctly restricted elsewhere; re-check from an outside network.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Attack_Surface_Analysis_Cheat_Sheet.html
+added_by: seed
+review: approved
