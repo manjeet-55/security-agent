@@ -440,6 +440,8 @@ The cache lives in `$SECAGENT_CACHE_DIR`, or `~/.cache/secagent/advisories` when
 
 Offline scans use the cache, and the report states "knowledge as of <date>".
 
+**Advisory freshness (from review):** advisory data older than 30 days is unavailable when a refresh fails (`ADVISORY_UNAVAILABLE`, naming the age), and a cached entry timestamped more than an hour in the future counts as expired. Every report states "advisories as of <date>", the oldest fetch time among the data used. Stale data (a cached copy served because its source was unreachable) is flagged `STALE` and blocks dismiss verdicts: `verify` returns `unverifiable` instead of `fixed_in_installed` or `not_affected`. The KEV catalog is re-read once its cache entry expires, even in a long-lived process. Advisory fetches also have a 30 s total deadline and pagination is capped at 50 pages.
+
 **Fail-closed rules (from review):**
 - `host_package` advisories is `unverifiable` when no distro package can be checked (`NO_DISTRO_PACKAGES`); otherwise it reports the number of skipped non-distro packages. It judges the lowest installed version per source package.
 - `verify_claim` judges the lowest installed version per source. An unmatched `--package` filter yields `unverifiable`. Its result's `kev` is `boolean | null`, where `null` means CISA KEV was unavailable.
@@ -545,6 +547,8 @@ Output: Markdown in `.secagent/reports/`, plus a self-contained HTML file.
 | DNS failure | `unverifiable` |
 | IPv6 hang | IPv4 by default (`network.ip_family`) |
 | Advisory API down or rate-limited | Serve from the cache and mark it stale; NVD 403/429 → back off and skip CVSS |
+| Stale advisory data (source down, copy ≤ 30 days old) | Report states "advisories as of <date>, STALE"; dismiss verdicts become `unverifiable` |
+| Advisory cache older than 30 days (or dated in the future) and refresh fails | `unverifiable: ADVISORY_UNAVAILABLE` naming the age |
 | Malformed or partial collector JSON | Parse what's valid; `errors[]` surfaced; affected checks `unverifiable` |
 | Unsupported distro | Package checks `unverifiable: unsupported_distro`; config checks run |
 | Target not in `project.yaml` | Tool error naming the allowlist; the playbook says to ask the developer |
