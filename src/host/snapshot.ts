@@ -29,12 +29,16 @@ export interface HostSnapshot {
   is_root: boolean;
   os: OsRelease;
   kernel: string;
-  /** Empty when dpkg is unavailable (non-Debian host). */
+  /** Empty when dpkg is unavailable (non-Debian host); see `packages_error`. */
   packages: InstalledPackage[];
+  /** Set when the packages section failed, is missing or listed no installed package: consumers must not treat `[]` as "nothing installed". */
+  packages_error?: string;
   /** Keyed by binary package name without arch. */
   origins: Record<string, PackageOrigin>;
   auto_upgrades: { enabled: boolean; installed: boolean };
   reboot: { required: boolean; packages: string[] };
+  /** Set unless the reboot section ran with rc 0 and reported "required" or "not-required". */
+  reboot_error?: string;
   sshd: SectionState<Record<string, string>>;
   /** Redacted `nginx -T` output. */
   nginx: SectionState<string>;
@@ -54,6 +58,27 @@ function stateOf<T>(s: { rc: number; text: string } | undefined, parse: (text: s
   return s.rc === 127 ? { state: 'absent', reason } : { state: 'error', reason };
 }
 
+/** The installed packages, or ObservationError('NO_PACKAGES') when the packages section is missing, failed or empty. */
+export function requirePackages(snap: HostSnapshot): InstalledPackage[] {
+  if (snap.packages_error !== undefined || snap.packages.length === 0) {
+    throw new ObservationError('NO_PACKAGES', `The snapshot has no usable installed-package list (${snap.packages_error ?? 'no installed packages'}).`);
+  }
+  return snap.packages;
+}
+
+function packagesError(s: { rc: number; text: string } | undefined, count: number): string | undefined {
+  if (!s) return 'packages section missing from snapshot';
+  if (s.rc !== 0) return `dpkg-query failed (exit code ${s.rc})`;
+  return count === 0 ? 'dpkg-query listed no installed packages' : undefined;
+}
+
+function rebootError(s: { rc: number; text: string } | undefined): string | undefined {
+  if (!s) return 'reboot section missing from snapshot';
+  if (s.rc !== 0) return `reboot check failed (exit code ${s.rc})`;
+  const first = s.text.split('\n').find((l) => l.trim() !== '')?.trim();
+  return first === 'required' || first === 'not-required' ? undefined : 'reboot check printed neither "required" nor "not-required"';
+}
+
 export function decodeSnapshot(raw: unknown): HostSnapshot {
   const parsed = SnapshotEnvelopeSchema.safeParse(raw);
   if (!parsed.success) {
@@ -67,15 +92,21 @@ export function decodeSnapshot(raw: unknown): HostSnapshot {
     const s = section(env, name);
     return s && s.rc === 0 ? s.text : '';
   };
+  const pkgSection = section(env, 'packages');
+  const packages = parsePackages(text('packages'));
+  const pkgError = packagesError(pkgSection, packages.length);
+  const rebootErr = rebootError(section(env, 'reboot'));
   return {
     collected_at: env.collected_at,
     is_root: text('uid').trim() === '0',
     os: parseOsRelease(osRelease.text),
     kernel: text('kernel').trim(),
-    packages: parsePackages(text('packages')),
+    packages,
+    ...(pkgError !== undefined ? { packages_error: pkgError } : {}),
     origins: parseAptPolicy(text('apt_policy')),
     auto_upgrades: parseAutoUpgrades(section(env, 'auto_upgrades')?.text ?? ''),
     reboot: parseReboot(text('reboot')),
+    ...(rebootErr !== undefined ? { reboot_error: rebootErr } : {}),
     sshd: stateOf(section(env, 'sshd'), parseSshdT),
     nginx: stateOf(section(env, 'nginx'), (t) => t),
     listening: stateOf(section(env, 'listening'), parseListening),

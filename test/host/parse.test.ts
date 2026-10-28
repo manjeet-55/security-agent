@@ -77,8 +77,14 @@ describe('parsers', () => {
     ]);
   });
 
+  it('counts held and half-configured packages as installed but not removed ones', () => {
+    const text = 'hi \topenssh-server\t1\topenssh\t1\niU \ta\t1\ta\t1\nrc \tb\t1\tb\t1\nun \tc\t1\tc\t1\niW \td\t1\td\t1\n';
+    expect(parsePackages(text).map((p) => p.name)).toEqual(['openssh-server', 'a', 'd']);
+  });
+
   it('reads unattended-upgrades state and reboot state', () => {
     expect(parseAutoUpgrades('APT::Periodic::Unattended-Upgrade "1";\nii unattended-upgrades\n')).toEqual({ enabled: true, installed: true });
+    expect(parseAutoUpgrades('APT::Periodic::Unattended-Upgrade "1";\nhi unattended-upgrades\n')).toEqual({ enabled: true, installed: true });
     expect(parseAutoUpgrades('')).toEqual({ enabled: false, installed: false });
     expect(parseReboot('required\nlinux-image-6.8.0-1\nlibc6\n')).toEqual({ required: true, packages: ['linux-image-6.8.0-1', 'libc6'] });
     expect(parseReboot('not-required\n')).toEqual({ required: false, packages: [] });

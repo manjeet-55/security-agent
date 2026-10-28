@@ -4,7 +4,7 @@ import { distroOf } from '../../advisories/distro.js';
 import { cveIdsOf, fixedVersionFor, ubuntuPriority } from '../../advisories/osv.js';
 import type { Advisories, PackageQuery } from '../../advisories/types.js';
 import { aptListsEmpty, classifyOrigin } from '../../host/origin.js';
-import type { HostSnapshot } from '../../host/snapshot.js';
+import { requirePackages, type HostSnapshot } from '../../host/snapshot.js';
 import { maxSeverity, SEVERITY_RANK, type Severity } from '../../types.js';
 import { compareDebVersions } from '../../util/debver.js';
 import type { CheckType } from '../check-type.js';
@@ -107,6 +107,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     const osName = snapshot.os.pretty_name || snapshot.os.id;
 
     if (p.assert === 'reboot') {
+      if (snapshot.reboot_error !== undefined) throw new ObservationError('REBOOT_UNREADABLE', `The reboot check could not be read: ${snapshot.reboot_error}.`);
       const evidence_id = await ctx.evidence.put('snapshot', name, 'reboot-required state', { ...base, excerpt: snapshot.reboot });
       if (!snapshot.reboot.required) return { outcome: 'pass', observed: 'no reboot pending', evidence_id };
       const pkgs = snapshot.reboot.packages.join(', ') || 'unspecified';
@@ -114,6 +115,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     }
 
     if (p.assert === 'third_party') {
+      requirePackages(snapshot);
       if (aptListsEmpty(snapshot.origins)) {
         throw new ObservationError(
           'APT_LISTS_EMPTY',
@@ -143,7 +145,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
 
     const distro = distroOf(snapshot.os);
     if (!distro) throw new ObservationError('UNSUPPORTED_DISTRO', `Package advisories are checked for Ubuntu and Debian only; this host runs "${osName}".`);
-    if (snapshot.packages.length === 0) throw new ObservationError('NO_PACKAGES', 'The snapshot lists no installed packages (dpkg-query was unavailable).');
+    requirePackages(snapshot);
     const sources = distroSources(snapshot, distro.codename);
     if (sources.length === 0) {
       throw new ObservationError(

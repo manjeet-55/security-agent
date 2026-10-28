@@ -45,12 +45,17 @@ export function parseOsRelease(text: string): OsRelease {
   };
 }
 
-/** dpkg-query lines "<status>\t<name[:arch]>\t<version>\t<source>\t<source version>"; only "ii" (installed) rows. */
+/**
+ * dpkg-query lines "<status>\t<name[:arch]>\t<version>\t<source>\t<source version>". The status is three characters
+ * (want, state, error); a package counts as installed unless its state is "n" (not-installed) or "c" (config-files),
+ * so held ("hi"), reinstall-required ("iR") and half-configured rows still count.
+ */
 export function parsePackages(text: string): InstalledPackage[] {
   const out: InstalledPackage[] = [];
   for (const line of text.split('\n')) {
     const [status, nameArch, version, source, sourceVersion] = line.split('\t');
-    if (status?.trim() !== 'ii' || !nameArch || !version) continue;
+    const state = status?.[1];
+    if (!state || state === 'n' || state === 'c' || !nameArch || !version) continue;
     const [name = nameArch, arch] = nameArch.split(':');
     out.push({ name, ...(arch ? { arch } : {}), version, source: source || name, source_version: sourceVersion || version });
   }
@@ -123,7 +128,7 @@ export function parseListening(text: string): ListeningSocket[] {
 export function parseAutoUpgrades(text: string): { enabled: boolean; installed: boolean } {
   return {
     enabled: /^APT::Periodic::Unattended-Upgrade "1";/m.test(text),
-    installed: /^ii\s*unattended-upgrades\s*$/m.test(text),
+    installed: /^[ih]i\s*unattended-upgrades\s*$/m.test(text),
   };
 }
 

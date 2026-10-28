@@ -162,3 +162,28 @@ describe('host_package third_party and reboot', () => {
     expect((await run(snap, { assert: 'reboot' })).observed).toBe('a reboot is pending (packages: linux-image-6.8.0-90-generic)');
   });
 });
+
+describe('host_package v2 fail-closed', () => {
+  const env = fixtureEnvelope('ubuntu-24-04');
+
+  it('counts held packages as installed: a held vulnerable openssh fails advisories', async () => {
+    const old = withSourceVersion(env, 'openssh', '1:9.6p1-3ubuntu13');
+    const held = sectionOf(old, 'packages').replace(/^ii (\t(openssh-server|openssh-client|openssh-sftp-server)\t)/gm, 'hi $1');
+    const r = await run(decodeSnapshot(withSection(old, 'packages', held)), { assert: 'advisories' });
+    expect(r.outcome).toBe('fail');
+    expect(r.observed).toContain('openssh');
+  });
+
+  it('a failed packages section throws NO_PACKAGES for advisories and third_party', async () => {
+    const snap = decodeSnapshot(withSection(env, 'packages', 'dpkg-query: error', 1));
+    await expect(run(snap, { assert: 'advisories' })).rejects.toMatchObject({ code: 'NO_PACKAGES' });
+    await expect(run(snap, { assert: 'third_party' })).rejects.toMatchObject({ code: 'NO_PACKAGES' });
+  });
+
+  it('reboot rc=1, garbage or a missing section is an ObservationError', async () => {
+    await expect(run(decodeSnapshot(withSection(env, 'reboot', 'not-required\n', 1)), { assert: 'reboot' })).rejects.toBeInstanceOf(ObservationError);
+    await expect(run(decodeSnapshot(withSection(env, 'reboot', 'maybe\n')), { assert: 'reboot' })).rejects.toBeInstanceOf(ObservationError);
+    const missing = { ...env, sections: Object.fromEntries(Object.entries(env.sections).filter(([k]) => k !== 'reboot')) };
+    await expect(run(decodeSnapshot(missing), { assert: 'reboot' })).rejects.toBeInstanceOf(ObservationError);
+  });
+});
