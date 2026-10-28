@@ -19,6 +19,17 @@ describe('isPrivateAddress', () => {
     ['8.8.8.8', false],
     ['2001:db8::1', false],
     ['not-an-ip', false],
+    ['192.0.0.8', true],
+    ['198.18.0.1', true],
+    ['224.0.0.1', true],
+    ['255.255.255.255', true],
+    ['ff02::1', true],
+    ['::ffff:a00:1', true],
+    ['64:ff9b::a00:1', true],
+    ['64:ff9b::10.0.0.1', true],
+    ['64:ff9b::808:808', false],
+    ['2002:a00:1::', true],
+    ['2002:808:808::1', false],
   ])('%s → %s', (ip, expected) => {
     expect(isPrivateAddress(ip)).toBe(expected);
   });

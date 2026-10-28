@@ -2,7 +2,8 @@ import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import { toNetError } from './errors.js';
 
-const PRIVATE_V4 = new BlockList();
+// One list for both families: Node matches IPv4-mapped IPv6 (including hex form) against the IPv4 subnets.
+const NON_PUBLIC = new BlockList();
 for (const [net, prefix] of [
   ['0.0.0.0', 8],
   ['10.0.0.0', 8],
@@ -10,34 +11,63 @@ for (const [net, prefix] of [
   ['127.0.0.0', 8],
   ['169.254.0.0', 16],
   ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
   ['192.168.0.0', 16],
+  ['198.18.0.0', 15],
+  ['224.0.0.0', 4],
+  ['240.0.0.0', 4],
 ] as const) {
-  PRIVATE_V4.addSubnet(net, prefix, 'ipv4');
+  NON_PUBLIC.addSubnet(net, prefix, 'ipv4');
 }
-
-const PRIVATE_V6 = new BlockList();
 for (const [net, prefix] of [
   ['::', 128],
   ['::1', 128],
   ['fc00::', 7],
   ['fe80::', 10],
+  ['ff00::', 8],
 ] as const) {
-  PRIVATE_V6.addSubnet(net, prefix, 'ipv6');
+  NON_PUBLIC.addSubnet(net, prefix, 'ipv6');
+}
+
+/** Expands an IPv6 address (with `::` compression and/or a trailing dotted IPv4) to its 8 hextets. */
+function expandIpv6(ip: string): number[] {
+  let text = ip;
+  const dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) {
+    const [, head, a, b, c, d] = dotted;
+    text = `${head}${((Number(a) << 8) | Number(b)).toString(16)}:${((Number(c) << 8) | Number(d)).toString(16)}`;
+  }
+  const parse = (part: string): number[] => (part === '' ? [] : part.split(':').map((h) => parseInt(h, 16)));
+  const [left = '', right] = text.split('::');
+  if (right === undefined) return parse(left);
+  const l = parse(left);
+  const r = parse(right);
+  return [...l, ...new Array<number>(8 - l.length - r.length).fill(0), ...r];
+}
+
+function hextetsToV4(hi: number, lo: number): string {
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
 }
 
 export function stripBrackets(host: string): string {
   return host.replace(/^\[|\]$/g, '');
 }
 
-/** True for loopback, RFC 1918, CGNAT, link-local, unique-local and unspecified addresses. */
+/**
+ * True for addresses that are not public unicast: loopback, RFC 1918, CGNAT, link-local, unique-local,
+ * unspecified, reserved and multicast. IPv4-mapped, NAT64 and 6to4 forms are judged by the IPv4 they embed.
+ */
 export function isPrivateAddress(ip: string): boolean {
   const version = isIP(ip);
-  if (version === 4) return PRIVATE_V4.check(ip, 'ipv4');
-  if (version === 6) {
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip)?.[1];
-    if (mapped) return PRIVATE_V4.check(mapped, 'ipv4');
-    return PRIVATE_V6.check(ip, 'ipv6');
+  if (version === 4) return NON_PUBLIC.check(ip, 'ipv4');
+  if (version !== 6) return false;
+  if (NON_PUBLIC.check(ip, 'ipv6')) return true;
+  const h = expandIpv6(ip);
+  const [h0 = 0, h1 = 0, h2 = 0] = h;
+  if (h0 === 0x64 && h1 === 0xff9b && h.slice(2, 6).every((x) => x === 0)) {
+    return isPrivateAddress(hextetsToV4(h[6] ?? 0, h[7] ?? 0));
   }
+  if (h0 === 0x2002) return isPrivateAddress(hextetsToV4(h1, h2));
   return false;
 }
 
