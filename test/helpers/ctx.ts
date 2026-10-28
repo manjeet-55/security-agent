@@ -1,5 +1,7 @@
+import type { Advisories } from '../../src/advisories/types.js';
 import type { CheckContext, CheckSubject } from '../../src/checks/context.js';
 import { EvidenceStore } from '../../src/evidence/store.js';
+import type { SnapshotReader } from '../../src/host/store.js';
 import type { HttpObservation } from '../../src/net/http.js';
 import type { NetClient } from '../../src/net/scoped.js';
 import { validateProject } from '../../src/project/schema.js';
@@ -24,10 +26,22 @@ const unstubbed = (name: string) => async (): Promise<never> => {
   throw new Error(`net.${name} was not stubbed in this test`);
 };
 
+export const NO_SNAPSHOTS: SnapshotReader = { latest: async () => undefined };
+
+const unstubbedAdvisory = async (): Promise<never> => {
+  throw new Error('advisories were not stubbed in this test');
+};
+export const NO_ADVISORIES: Advisories = {
+  osv: { affected: unstubbedAdvisory, vulnsFor: unstubbedAdvisory, vuln: unstubbedAdvisory },
+  ubuntu: { cve: unstubbedAdvisory },
+  kev: { catalog: unstubbedAdvisory },
+};
+
 /** A context with one web target "app" (https://app.example.com) and one host "web-1" (203.0.113.10). */
 export async function makeCtx(
   net: Partial<NetClient> = {},
   projectOverrides: Record<string, unknown> = {},
+  deps: { snapshots?: SnapshotReader; advisories?: Advisories } = {},
 ): Promise<{ ctx: CheckContext; dir: string }> {
   const dir = await tempDir();
   const project = validateProject({
@@ -43,6 +57,8 @@ export async function makeCtx(
     net: { http: unstubbed('http'), tls: unstubbed('tls'), tcp: unstubbed('tcp'), ...net },
     evidence: new EvidenceStore(dir, project.network.scan_label, () => FIXED_NOW),
     now: () => FIXED_NOW,
+    snapshots: deps.snapshots ?? NO_SNAPSHOTS,
+    advisories: deps.advisories ?? NO_ADVISORIES,
     memo: new Map(),
   };
   return { ctx, dir };

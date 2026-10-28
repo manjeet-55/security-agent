@@ -3,6 +3,7 @@ import { ScopeError } from '../project/scope.js';
 import type { CheckResult } from '../types.js';
 import type { CheckInstance } from './catalog.js';
 import type { AnyCheckType } from './check-type.js';
+import { ObservationError } from './errors.js';
 import { subjectId, subjectKind, type CheckContext, type CheckSubject } from './context.js';
 
 export function applicableInstances(instances: readonly CheckInstance[], subject: CheckSubject): CheckInstance[] {
@@ -31,9 +32,14 @@ export async function runInstance(
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    const label = ctx.project.network.scan_label;
+    if (e instanceof ObservationError) {
+      const observed = `${message} This does not mean the issue is fixed.`;
+      const evidence_id = await ctx.evidence.put('note', base.target, observed, { code: e.code, message, scan_label: label });
+      return { ...base, outcome: 'unverifiable', severity: instance.severity, observed, evidence_id };
+    }
     const unverifiable = e instanceof NetError || e instanceof ScopeError;
     const code = e instanceof NetError ? e.code : e instanceof ScopeError ? 'OUT_OF_SCOPE' : 'CHECK_ERROR';
-    const label = ctx.project.network.scan_label;
     const reach =
       subject.kind === 'host' && subject.host.reachable_from.length > 0
         ? ` Expected to be reachable from: ${subject.host.reachable_from.join(', ')}.`

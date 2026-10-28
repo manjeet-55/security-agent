@@ -1,3 +1,5 @@
+import { createAdvisories } from '../advisories/index.js';
+import type { Advisories } from '../advisories/types.js';
 import { loadCheckInstances } from '../checks/catalog.js';
 import type { AnyCheckType } from '../checks/check-type.js';
 import type { CheckContext } from '../checks/context.js';
@@ -8,6 +10,7 @@ import { diffScans } from '../findings/diff.js';
 import { resultsToFindings } from '../findings/from-results.js';
 import type { ScanRecord } from '../findings/schema.js';
 import { FindingsStore } from '../findings/store.js';
+import { SnapshotStore, type SnapshotReader } from '../host/store.js';
 import { ScopedNet, type NetClient } from '../net/scoped.js';
 import { GLOBAL_CHECKS_DIR } from '../paths.js';
 import { loadProject } from '../project/schema.js';
@@ -20,6 +23,10 @@ export interface ScanDeps {
   now?: () => Date;
   checksDir?: string;
   types?: ReadonlyMap<string, AnyCheckType>;
+  /** Defaults to the project's .secagent/hosts store. */
+  snapshots?: SnapshotReader;
+  /** Defaults to live OSV/Ubuntu/KEV clients with the user cache. */
+  advisories?: Advisories;
 }
 
 /** Runs every applicable check on every listed target and host, with no AI involvement. */
@@ -33,6 +40,8 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
     net: deps.net ?? new ScopedNet(new Scope(project), project.network.ip_family),
     evidence: new EvidenceStore(projectDir, project.network.scan_label, now),
     now,
+    snapshots: deps.snapshots ?? new SnapshotStore(projectDir),
+    advisories: deps.advisories ?? createAdvisories({ now }),
     memo: new Map(),
   };
 

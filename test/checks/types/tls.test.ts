@@ -6,6 +6,7 @@ import { ScopedNet } from '../../../src/net/scoped.js';
 import { LEGACY_CIPHERS, type TlsObservation } from '../../../src/net/tls.js';
 import { validateProject } from '../../../src/project/schema.js';
 import { Scope } from '../../../src/project/scope.js';
+import { NO_ADVISORIES, NO_SNAPSHOTS } from '../../helpers/ctx.js';
 import { startTls, useServers } from '../../helpers/servers.js';
 import { tempDir } from '../../helpers/tmp.js';
 
@@ -83,6 +84,8 @@ describe('tls check against real servers', () => {
       net: new ScopedNet(new Scope(project), 4),
       evidence: new EvidenceStore(await tempDir(), 'test'),
       now: () => new Date(),
+      snapshots: NO_SNAPSHOTS,
+      advisories: NO_ADVISORIES,
       memo: new Map(),
     };
     const target = project.targets[0];

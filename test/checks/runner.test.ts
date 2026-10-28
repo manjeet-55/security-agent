@@ -5,17 +5,19 @@ import { z } from 'zod';
 import { CheckInstanceSchema, type CheckInstance } from '../../src/checks/catalog.js';
 import type { AnyCheckType, CheckType } from '../../src/checks/check-type.js';
 import { subjectId } from '../../src/checks/context.js';
+import { ObservationError } from '../../src/checks/errors.js';
 import { runChecks, runInstance } from '../../src/checks/runner.js';
 import { NetError } from '../../src/net/errors.js';
 import { hostSubject, makeCtx, targetSubject } from '../helpers/ctx.js';
 
-type Mode = 'pass' | 'fail' | 'neterror' | 'boom';
+type Mode = 'pass' | 'fail' | 'neterror' | 'boom' | 'observe';
 const fakeType: CheckType<{ mode: Mode }> = {
   type: 'fake',
   supports: ['web', 'api', 'host'],
-  params: z.object({ mode: z.enum(['pass', 'fail', 'neterror', 'boom']) }),
+  params: z.object({ mode: z.enum(['pass', 'fail', 'neterror', 'boom', 'observe']) }),
   async run(ctx, subject, p) {
     if (p.mode === 'neterror') throw new NetError('TIMEOUT', 'too slow');
+    if (p.mode === 'observe') throw new ObservationError('NO_SNAPSHOT', 'No collector snapshot for host "web-1".');
     if (p.mode === 'boom') throw new Error('bug in check');
     const evidence_id = await ctx.evidence.put('note', subjectId(subject), `fake ${p.mode}`, {});
     return { outcome: p.mode, observed: `fake ${p.mode}`, evidence_id, ...(p.mode === 'fail' ? { severity: 'high' as const } : {}) };
@@ -56,6 +58,13 @@ describe('runInstance', () => {
     expect(r.observed).toContain('office');
     expect(r.observed).toContain('does not mean the issue is fixed');
     expect(existsSync(path.join(dir, '.secagent', 'evidence', `${r.evidence_id}.json`))).toBe(true);
+  });
+
+  it('turns ObservationError into unverifiable without network wording', async () => {
+    const { ctx } = await makeCtx();
+    const r = await runInstance(ctx, hostSubject(ctx), inst('a', 'observe', ['host']), TYPES);
+    expect(r.outcome).toBe('unverifiable');
+    expect(r.observed).toBe('No collector snapshot for host "web-1". This does not mean the issue is fixed.');
   });
 
   it('turns check bugs into error', async () => {

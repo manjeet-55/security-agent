@@ -1,9 +1,12 @@
+import type { Advisories } from '../advisories/types.js';
 import type { EvidenceStore } from '../evidence/store.js';
+import { MAX_SNAPSHOT_AGE_DAYS, type SnapshotReader, type StoredSnapshot } from '../host/store.js';
 import type { HttpObservation } from '../net/http.js';
 import { stripBrackets } from '../net/ip.js';
 import type { NetClient } from '../net/scoped.js';
 import type { Host, ProjectConfig, Target } from '../project/schema.js';
 import type { SubjectKind } from '../types.js';
+import { ObservationError } from './errors.js';
 
 export type CheckSubject = { kind: 'target'; target: Target } | { kind: 'host'; host: Host };
 
@@ -12,6 +15,10 @@ export interface CheckContext {
   net: NetClient;
   evidence: EvidenceStore;
   now: () => Date;
+  /** Collector snapshots for host checks. */
+  snapshots: SnapshotReader;
+  /** Distro advisory sources (OSV, Ubuntu, CISA KEV). */
+  advisories: Advisories;
   /** Per-scan cache so checks sharing an observation (e.g. the target's page) fetch it once. */
   memo: Map<string, Promise<unknown>>;
 }
@@ -53,5 +60,26 @@ export function getPage(
     const obs = await ctx.net.http(url);
     const evidenceId = await ctx.evidence.put('http', subject.target.id, `GET ${url} → ${obs.status}`, obs);
     return { obs, evidenceId };
+  });
+}
+
+/** The newest snapshot for a host, once per scan. Missing or older than MAX_SNAPSHOT_AGE_DAYS → ObservationError (unverifiable). */
+export function getSnapshot(ctx: CheckContext, host: Host): Promise<StoredSnapshot> {
+  return memoize(ctx, `SNAPSHOT ${host.name}`, async () => {
+    const stored = await ctx.snapshots.latest(host.name);
+    if (!stored) {
+      throw new ObservationError(
+        'NO_SNAPSHOT',
+        `No collector snapshot for host "${host.name}". Run "secagent collector --host ${host.name}", run it on the host, then "secagent snapshot add --host ${host.name} <file>".`,
+      );
+    }
+    const ageDays = (ctx.now().getTime() - Date.parse(stored.snapshot.collected_at)) / 86_400_000;
+    if (ageDays > MAX_SNAPSHOT_AGE_DAYS) {
+      throw new ObservationError(
+        'SNAPSHOT_STALE',
+        `The newest snapshot for host "${host.name}" is ${Math.floor(ageDays)} days old (limit ${MAX_SNAPSHOT_AGE_DAYS}). Re-run the collector.`,
+      );
+    }
+    return stored;
   });
 }
