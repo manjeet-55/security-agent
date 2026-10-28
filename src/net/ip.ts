@@ -56,11 +56,12 @@ export function stripBrackets(host: string): string {
 /**
  * True for addresses that are not public unicast: loopback, RFC 1918, CGNAT, link-local, unique-local,
  * unspecified, reserved and multicast. IPv4-mapped, NAT64 and 6to4 forms are judged by the IPv4 they embed.
+ * Input that is not an IP literal also counts as non-public, so callers fail closed.
  */
 export function isPrivateAddress(ip: string): boolean {
   const version = isIP(ip);
   if (version === 4) return NON_PUBLIC.check(ip, 'ipv4');
-  if (version !== 6) return false;
+  if (version !== 6) return true;
   if (NON_PUBLIC.check(ip, 'ipv6')) return true;
   const h = expandIpv6(ip);
   const [h0 = 0, h1 = 0, h2 = 0] = h;
