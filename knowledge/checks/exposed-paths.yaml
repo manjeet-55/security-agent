@@ -1,0 +1,25 @@
+id: exposed-paths
+type: exposed_path
+title: Secrets, repository metadata and source maps are not served
+severity: high
+applies_to: [web, api]
+params:
+  paths:
+    - { path: /.env, signature: '^[A-Z][A-Z0-9_]*\s*=', severity: critical }
+    - { path: /.git/config, signature: '^\[core\]', severity: high }
+    - { path: /.git/HEAD, signature: '^ref: refs/', severity: high }
+    - { path: /.aws/credentials, signature: '^\[default\]', severity: critical }
+    - { path: /.DS_Store, signature: 'Bud1', severity: low }
+  source_maps:
+    enabled: true
+    max_scripts: 5
+    severity: low
+fix_hints:
+  nginx: 'location ~ /\.(?!well-known) { deny all; }   location ~ \.map$ { deny all; }'
+  angular: '"sourceMap": false in the production configuration of angular.json'
+  vue: 'build.sourcemap: false in vite.config'
+  nextjs: 'productionBrowserSourceMaps: false (the default) in next.config'
+  any: 'Remove secrets and VCS metadata from the deployed artifact; keep .env out of the web root and the image.'
+source_url: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information
+added_by: seed
+review: approved
