@@ -42,6 +42,17 @@ export function distroSources(snap: HostSnapshot, codename: string): PackageQuer
   return [...best].map(([name, version]) => ({ name, version }));
 }
 
+/** How many distinct packages `distroSources` leaves out because a third-party repo or a local install provides them. */
+export function skippedSourceCount(snap: HostSnapshot, codename: string): number {
+  if (aptListsEmpty(snap.origins)) return 0;
+  const skipped = new Set<string>();
+  for (const pkg of snap.packages) {
+    const kind = classifyOrigin(snap.origins[pkg.name], codename).kind;
+    if (kind === 'third_party' || kind === 'local') skipped.add(pkg.name);
+  }
+  return skipped.size;
+}
+
 export async function findFixable(
   advisories: Advisories,
   ecosystem: string,
@@ -52,7 +63,8 @@ export async function findFixable(
   let kev_available = true;
   try {
     kev = await advisories.kev.catalog();
-  } catch {
+  } catch (err) {
+    if (!(err instanceof ObservationError)) throw err;
     kev_available = false;
   }
   const fixable: FixablePackage[] = [];
@@ -132,21 +144,30 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     if (!distro) throw new ObservationError('UNSUPPORTED_DISTRO', `Package advisories are checked for Ubuntu and Debian only; this host runs "${osName}".`);
     if (snapshot.packages.length === 0) throw new ObservationError('NO_PACKAGES', 'The snapshot lists no installed packages (dpkg-query was unavailable).');
     const sources = distroSources(snapshot, distro.codename);
+    if (sources.length === 0) {
+      throw new ObservationError(
+        'NO_DISTRO_PACKAGES',
+        `No installed package could be attributed to ${osName} repositories, so distro advisories could not be checked.`,
+      );
+    }
+    const skipped = skippedSourceCount(snapshot, distro.codename);
     const { fixable, unfixed, kev_available } = await findFixable(ctx.advisories, distro.ecosystem, sources);
     const evidence_id = await ctx.evidence.put('advisory', name, `${sources.length} packages checked against ${distro.ecosystem}`, {
       ...base,
       ecosystem: distro.ecosystem,
       checked: sources.length,
+      skipped_non_distro: skipped,
       fixable,
       unfixed,
       kev_available,
     });
     const kevNote = kev_available ? '' : '; CISA KEV was unavailable, so known-exploited CVEs were not escalated';
+    const skippedNote = skipped > 0 ? `; ${skipped} non-distro packages not checked (see host-package-third-party)` : '';
     if (fixable.length === 0) {
       const unfixedNote = unfixed > 0 ? `; ${unfixed} advisories have no released fix yet` : '';
       return {
         outcome: 'pass',
-        observed: `${sources.length} distro source packages checked against ${distro.ecosystem} advisories; no security fixes pending${unfixedNote}${kevNote}`,
+        observed: `${sources.length} distro source packages checked against ${distro.ecosystem} advisories; no security fixes pending${unfixedNote}${kevNote}${skippedNote}`,
         evidence_id,
       };
     }
@@ -155,7 +176,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     return {
       outcome: 'fail',
       severity,
-      observed: `${fixable.length} package(s) have security fixes not installed: ${fixable.slice(0, p.max_listed).map(describeFixable).join('; ')}${more}${kevNote}`,
+      observed: `${fixable.length} package(s) have security fixes not installed: ${fixable.slice(0, p.max_listed).map(describeFixable).join('; ')}${more}${kevNote}${skippedNote}`,
       evidence_id,
       details: { fixable },
     };

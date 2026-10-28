@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ObservationError } from '../../../src/checks/errors.js';
-import { distroSources, findFixable, hostPackageCheck, hostPackageParams } from '../../../src/checks/types/host-package.js';
+import { distroSources, findFixable, hostPackageCheck, hostPackageParams, skippedSourceCount } from '../../../src/checks/types/host-package.js';
 import { decodeSnapshot } from '../../../src/host/snapshot.js';
 import { fixtureAdvisories } from '../../helpers/advisories.js';
 import { hostSubject, makeCtx } from '../../helpers/ctx.js';
@@ -19,6 +19,12 @@ describe('distroSources', () => {
     const sources = distroSources(fixtureSnapshot('ubuntu-24-04'), 'noble');
     expect(sources.filter((s) => s.name === 'openssh')).toEqual([{ name: 'openssh', version: '1:9.6p1-3ubuntu13.20' }]);
     expect(new Set(sources.map((s) => s.name)).size).toBe(sources.length);
+  });
+});
+
+describe('skippedSourceCount', () => {
+  it('is zero when every package is from the distro', () => {
+    expect(skippedSourceCount(fixtureSnapshot('ubuntu-24-04'), 'noble')).toBe(0);
   });
 });
 
@@ -64,6 +70,47 @@ describe('host_package advisories', () => {
     };
     const sources = distroSources(snapshot, 'noble');
     expect((await findFixable(advisories, 'Ubuntu:24.04:LTS', sources)).kev_available).toBe(false);
+  });
+
+  it('is unverifiable when no installed package can be attributed to distro repositories', async () => {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    const policy = sectionOf(env, 'apt_policy').replace(/^( {8}\d+ )http\S* \S+/gm, '$1http://vendor.example.com/apt stable/main');
+    const snap = decodeSnapshot(withSection(env, 'apt_policy', policy));
+    await expect(run(snap, { assert: 'advisories' })).rejects.toMatchObject({ code: 'NO_DISTRO_PACKAGES' });
+  });
+
+  it('propagates an unavailable OSV instead of passing', async () => {
+    const { ctx } = await makeCtx({}, {}, { snapshots: readerFor(fixtureSnapshot('ubuntu-24-04')), advisories: fixtureAdvisories(await tempDir()) });
+    ctx.advisories.osv = {
+      ...ctx.advisories.osv,
+      affected: async () => {
+        throw new ObservationError('ADVISORY_UNAVAILABLE', 'offline');
+      },
+    };
+    await expect(hostPackageCheck.run(ctx, hostSubject(ctx), P({ assert: 'advisories' }), {} as never)).rejects.toMatchObject({
+      code: 'ADVISORY_UNAVAILABLE',
+    });
+  });
+
+  it('says how many non-distro packages were not checked', async () => {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    const policy = `${sectionOf(env, 'apt_policy')}\nnginx:\n  Installed: 1.30.6-1~noble\n *** 1.30.6-1~noble 500\n        500 http://nginx.org/packages/ubuntu noble/nginx amd64 Packages\n        100 /var/lib/dpkg/status\n`;
+    const packages = sectionOf(env, 'packages').replace(/^ii \tnginx\t[^\n]*$/m, 'ii \tnginx\t1.30.6-1~noble\tnginx\t1.30.6-1~noble');
+    const snap = decodeSnapshot(withSection(withSection(env, 'apt_policy', policy), 'packages', packages));
+    const out = await run(snap, { assert: 'advisories' });
+    expect(out.outcome).toBe('pass');
+    expect(out.observed).toContain('1 non-distro packages not checked (see host-package-third-party)');
+  });
+
+  it('tells the reader when CISA KEV was unavailable', async () => {
+    const { ctx } = await makeCtx({}, {}, { snapshots: readerFor(fixtureSnapshot('ubuntu-24-04')), advisories: fixtureAdvisories(await tempDir()) });
+    ctx.advisories.kev = {
+      catalog: async () => {
+        throw new ObservationError('ADVISORY_UNAVAILABLE', 'offline');
+      },
+    };
+    const out = await hostPackageCheck.run(ctx, hostSubject(ctx), P({ assert: 'advisories' }), {} as never);
+    expect(out.observed).toContain('CISA KEV was unavailable');
   });
 });
 
