@@ -199,6 +199,7 @@ async function runVerify(args: string[], deps: CliDeps): Promise<number> {
     },
   });
   if (!values.host || !values.cve) throw new UsageError('Usage: secagent verify --host <name> --cve <CVE-id> [--package <name>] [--dir <path>] [--json]');
+  if (!/^CVE-\d{4}-\d{4,}$/i.test(values.cve.trim())) throw new UsageError(`--cve must look like CVE-2024-6387 (got "${values.cve}")`);
   const dir = path.resolve(values.dir);
   const project = await loadProject(dir);
   const host = new Scope(project).host(values.host);

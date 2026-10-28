@@ -126,6 +126,15 @@ describe('host commands', () => {
     expect(log).toHaveBeenCalledWith('CVE-2024-6387 on web-1: fixed_in_installed');
   });
 
+  it('verify rejects a malformed --cve with a usage message and exit 1, not a stack trace', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dir = await projectWithHost();
+    for (const bad of ['6387', 'CVE-24-1', 'cve-2024-6387; rm -rf']) {
+      expect(await main(['verify', '--dir', dir, '--host', 'web-1', '--cve', bad])).toBe(1);
+    }
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('--cve must look like CVE-2024-6387'));
+  });
+
   it('learn warms the advisory cache for stored snapshots', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const dir = await projectWithHost();
