@@ -1,3 +1,5 @@
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AdvisoryCache } from '../../src/advisories/cache.js';
 import { ObservationError } from '../../src/checks/errors.js';
@@ -51,5 +53,24 @@ describe('AdvisoryCache', () => {
     await cache.getOrFetch('ubuntu', 'CVE-0', 1000, fetcher);
     expect((await cache.getOrFetch('ubuntu', 'CVE-0', 1000, fetcher)).value).toBeNull();
     expect(calls).toBe(1);
+  });
+
+  it('returns the fetched value when the cache cannot be written', async () => {
+    const blocker = path.join(await tempDir(), 'file');
+    await writeFile(blocker, 'x');
+    const cache = new AdvisoryCache(blocker);
+    const r = await cache.getOrFetch('osv', 'k', 1000, async () => ({ ok: true }));
+    expect(r).toMatchObject({ value: { ok: true }, stale: false });
+  });
+
+  it('handles concurrent fetches of the same key', async () => {
+    const cache = new AdvisoryCache(await tempDir());
+    const fetcher = async () => ({ ok: true });
+    const [a, b] = await Promise.all([
+      cache.getOrFetch('osv', 'k', 1000, fetcher),
+      cache.getOrFetch('osv', 'k', 1000, fetcher),
+    ]);
+    expect(a.value).toEqual({ ok: true });
+    expect(b.value).toEqual({ ok: true });
   });
 });

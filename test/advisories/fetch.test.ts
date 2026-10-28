@@ -15,6 +15,6 @@ describe('createFetchJson', () => {
   it('verifies TLS certificates (a self-signed server is rejected)', async () => {
     const s = await track(startHttps((_req, res) => res.end('{}')));
     const fetchJson = createFetchJson({ allowHosts: new Set(['127.0.0.1']) });
-    await expect(fetchJson(`${s.url}/x`)).rejects.toThrow();
+    await expect(fetchJson(`${s.url}/x`)).rejects.toMatchObject({ code: expect.stringMatching(/SELF_SIGNED|CERT/) });
   });
 });

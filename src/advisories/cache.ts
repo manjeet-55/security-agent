@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ObservationError } from '../checks/errors.js';
@@ -29,18 +29,28 @@ export class AdvisoryCache {
     const cached = await this.read<T>(file, key);
     const now = this.now();
     if (cached && now.getTime() - Date.parse(cached.fetched_at) < ttlMs) return { ...cached, stale: false };
+    let value: T;
     try {
-      const value = await fetcher();
-      const fetched_at = now.toISOString();
-      await mkdir(path.dirname(file), { recursive: true });
-      const tmp = `${file}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify({ key, fetched_at, value }), 'utf8');
-      await rename(tmp, file);
-      return { value, fetched_at, stale: false };
+      value = await fetcher();
     } catch (e) {
       if (cached) return { ...cached, stale: true };
       const reason = e instanceof Error ? e.message : String(e);
       throw new ObservationError('ADVISORY_UNAVAILABLE', `${source} advisories are unavailable and nothing is cached: ${reason}`);
+    }
+    const fetched_at = now.toISOString();
+    await this.write(file, { key, fetched_at, value });
+    return { value, fetched_at, stale: false };
+  }
+
+  /** Best-effort: a cache that cannot be written must never discard a successful fetch. */
+  private async write(file: string, entry: { key: string; fetched_at: string; value: unknown }): Promise<void> {
+    const tmp = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+    try {
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(tmp, JSON.stringify(entry), 'utf8');
+      await rename(tmp, file);
+    } catch {
+      await unlink(tmp).catch(() => undefined);
     }
   }
 
