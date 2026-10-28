@@ -268,8 +268,8 @@ Each check **type** is a TypeScript module with typed `params` (zod). Each check
 | `exposed_path` | GET a fixed list (`/.env`, `/.git/config`, `/.git/HEAD`, `/.DS_Store`, `*.js.map` from the page's scripts). **SPA-safe:** first request a random path for a baseline. A path counts as exposed only if the response is 200, differs from the baseline, and matches a content signature (e.g. `KEY=value` lines for `.env`, `[core]` for git config). | first version |
 | `tls` | Rejects TLS 1.0/1.1 (probe with `minVersion/maxVersion` and `ciphers: 'DEFAULT@SECLEVEL=0'`); negotiates TLS 1.2 with AEAD or TLS 1.3; certificate valid ≥ 21 days and matches the hostname | first version |
 | `port_exposure` | TCP connect only, fixed list: 21, 22, 23, 2375, 3306, 5432, 6379, 9200, 11211, 27017. Runs against listed `hosts` only, never target hostnames, so CDN/shared infrastructure isn't port-probed. If nothing answers at all, including 80/443, the result is `unverifiable`. | first version |
-| `host_config` | From the collector: sshd `passwordauthentication no`, `permitrootlogin no\|prohibit-password`; nginx `server_tokens off`, `ssl_protocols` without TLSv1/TLSv1.1; listening sockets bound to `0.0.0.0` on database ports | first version |
-| `host_package` | Each installed package version checked against distro advisories using Debian version comparison; package origin outside the distro security pocket flagged; reboot pending flagged; CVE in CISA's exploited-vulnerabilities list escalates to critical | first version |
+| `host_config` | From the collector: sshd `passwordauthentication no`, `permitrootlogin no\|prohibit-password`; nginx `server_tokens off`, `ssl_protocols` without TLSv1/TLSv1.1; listening sockets bound to `0.0.0.0` on database ports. Rules: `sshd_value`, `nginx_directive` (with `absent_default`/`when_absent`), `listening`, `auto_upgrades` | first version |
+| `host_package` | Each installed package version checked against distro advisories using Debian version comparison; package origin outside the distro security pocket flagged; reboot pending flagged; CVE in CISA's exploited-vulnerabilities list escalates to critical. Asserts: `advisories` (OSV querybatch by source package; fail only on fixes not installed, and count unfixed advisories as informational), `third_party`, `reboot` | first version |
 | `http_cors` | Sends a forged `Origin`; fails if it's reflected, or if `*` is sent with credentials | stretch |
 | `lb_bypass` | A host's own address, for hosts with `serves:`, must not serve that target's app directly | stretch |
 | `dns_dangling` | A CNAME whose target doesn't resolve (subdomain takeover risk) | stretch |
@@ -339,9 +339,17 @@ The script is POSIX `sh`, read-only, and needs `sudo` only for `sshd -T` and `ng
 | `listening[]` | `ss -tlnpH` |
 | `errors[]` | any command that failed, with stderr |
 
-**Redaction** happens on the host before output: lines matching `auth_basic_user_file`, `proxy_set_header Authorization`, `*_secret`, `*_token`, `password`, and bearer/basic credential patterns are masked. The output carries `"schema": 1` and `collected_at`.
+**Output format:** one JSON object: `{"schema":1,"collector":"secagent-collector/1","collected_at":…,"sections":{"<name>":{"rc":<exit code>,"b64":"<base64 of redacted output>"}}}`. Base64 keeps arbitrary command output JSON-safe in POSIX sh. Exit code 127 means the tool isn't installed. Any other nonzero exit means it couldn't be read, usually because the collector wasn't run as root.
 
-`analyze_host` parses the newest snapshot. A non-Debian `os_release` makes package checks `unverifiable: unsupported_distro`; config checks still run.
+**Redaction** happens on the host before encoding, and targets values, not config keys:
+- nginx `$variables` whose names contain secret, token, passw, api-key or private;
+- credential-bearing header directives (`proxy_set_header` and friends, for Authorization, Cookie, token, secret and api-key headers);
+- Bearer tokens;
+- `user:pass@` in URLs.
+
+This was verified against planted secrets on Ubuntu 22.04/24.04 and Debian 12. Multi-line nginx `map` blocks are not redacted, a documented limitation.
+
+`analyze_host` parses the newest snapshot. A non-Debian `os_release` makes package checks `unverifiable: unsupported_distro`; config checks still run. Snapshots are added with `secagent snapshot add --host <name> <file>`, which validates the output. Package origin comes from the apt suite and component, not the mirror host: a source whose suite is the host codename (or `codename-*`) with a distro component is distro, and anything else (PPAs, nginx.org, docker) is third-party. When apt lists are empty, origins are unknowable and the third-party check is `unverifiable`.
 
 ### 7.1 Verifying third-party scanner claims
 
@@ -427,7 +435,15 @@ For distro packages, the distro security tracker (Ubuntu/Debian) wins over NVD a
 | NVD | 7 days |
 | Standards pages | 90 days |
 
+The cache lives in `$SECAGENT_CACHE_DIR`, or `~/.cache/secagent/advisories` when that isn't set, never inside the installed package. NVD is deferred: severity comes from Ubuntu's priority, falls back to medium, and CISA KEV forces critical.
+
 Offline scans use the cache, and the report states "knowledge as of <date>".
+
+**Fail-closed rules (from review):**
+- `host_package` `advisories` is `unverifiable` when no distro package can be checked (`NO_DISTRO_PACKAGES`), and reports the number of skipped non-distro packages. It judges the lowest installed version per source package.
+- `verify_claim` judges the lowest installed version per source. An unmatched `--package` filter yields `unverifiable`. Its result's `kev` is `boolean | null`, where `null` means CISA KEV was unavailable.
+- A 404 or malformed response from OSV or KEV counts as unavailable, never as clean.
+- Advisory cache write failures don't discard fetched data.
 
 ## 9. Agent layer
 
@@ -507,7 +523,10 @@ Output: Markdown in `.secagent/reports/`, plus a self-contained HTML file.
 | `secagent init` | Stack detection; `project.yaml` from flags (`--target id=url,type,env`, `--host name=address,env`, `--scan-label`), because the agent's `init` phase does the interviewing; `.gitignore`; MCP config; `AGENTS.md` pointer |
 | `secagent scan --no-ai` | `run_checks` for every target plus `analyze_host` for every fresh snapshot. Maps fail→`open`, unverifiable→`unverifiable`; a finding that was `open` stays `open` (marked not re-verified, `verified_at` unchanged) when its check is unverifiable or errors. Writes findings and a report. No LLM. |
 | `secagent mcp` | Starts the MCP server over stdio |
-| `secagent learn` | Deterministic feed refresh only (the research channel needs an agent) |
+| `secagent collector [--host h] [--out f]` | Print the read-only collector and how to run it |
+| `secagent snapshot add --host h <file>` | Validate and store collector output |
+| `secagent verify --host h --cve <id> [--package p] [--json]` | `verify_claim` from the CLI |
+| `secagent learn` | Refresh CISA KEV and OSV advisories for every stored host snapshot (deterministic; the research channel needs an agent) |
 | `secagent kb review` | Review pending knowledge-base entries |
 | `secagent eval <expected.yaml>` | Compares `findings/latest.json` with the expected statuses |
 | `secagent report [--html]` | Re-renders the latest report |
