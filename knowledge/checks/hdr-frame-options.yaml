@@ -1,0 +1,19 @@
+id: hdr-frame-options
+type: http_header
+title: Framing is restricted (X-Frame-Options or CSP frame-ancestors)
+severity: medium
+applies_to: [web]
+params:
+  header: x-frame-options
+  must_exist: true
+  one_of: [deny, sameorigin]
+  satisfied_by_csp_directive: frame-ancestors
+fix_hints:
+  nginx: "add_header X-Frame-Options \"DENY\" always;  # or CSP: frame-ancestors 'none'"
+  express: "app.use(helmet.frameguard({ action: 'deny' }))"
+  nestjs: 'app.use(helmet()) in main.ts'
+  nextjs: 'headers() in next.config: { key: "X-Frame-Options", value: "DENY" }'
+side_effects: [header-budget-proxy-buffer]
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
+added_by: seed
+review: approved

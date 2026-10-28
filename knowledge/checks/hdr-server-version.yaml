@@ -1,0 +1,14 @@
+id: hdr-server-version
+type: http_header
+title: Server header does not disclose a version
+severity: low
+applies_to: [web, api]
+params:
+  header: server
+  forbid_pattern: '\d'
+fix_hints:
+  nginx: 'server_tokens off;  (http block)'
+  any: 'Version banners let scanners match CVEs by version. Hide them, and patch via the distro regardless.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
+added_by: seed
+review: approved

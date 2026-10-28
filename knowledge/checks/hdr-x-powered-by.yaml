@@ -1,0 +1,16 @@
+id: hdr-x-powered-by
+type: http_header
+title: X-Powered-By is not sent
+severity: low
+applies_to: [web, api]
+params:
+  header: x-powered-by
+  must_not_exist: true
+fix_hints:
+  nginx: 'proxy_hide_header X-Powered-By;'
+  express: "app.disable('x-powered-by')  // or app.use(helmet())"
+  nestjs: "app.getHttpAdapter().getInstance().disable('x-powered-by')  // or app.use(helmet())"
+  nextjs: 'poweredByHeader: false in next.config'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
+added_by: seed
+review: approved

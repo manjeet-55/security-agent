@@ -1,0 +1,19 @@
+id: hdr-hsts
+type: http_header
+title: HSTS enabled with max-age of at least 180 days
+severity: medium
+applies_to: [web, api]
+params:
+  header: strict-transport-security
+  must_exist: true
+  min_max_age: 15552000
+fix_hints:
+  nginx: 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
+  express: 'app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true }))'
+  nestjs: 'app.use(helmet()) in main.ts (helmet sends HSTS by default)'
+  nextjs: 'headers() in next.config: { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }'
+  vercel: 'Vercel sends HSTS on its domains; set it explicitly in vercel.json headers for custom values.'
+side_effects: [header-budget-proxy-buffer]
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Strict_Transport_Security_Cheat_Sheet.html
+added_by: seed
+review: approved

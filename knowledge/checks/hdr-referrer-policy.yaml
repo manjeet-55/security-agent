@@ -1,0 +1,18 @@
+id: hdr-referrer-policy
+type: http_header
+title: Referrer-Policy limits what is sent to other sites
+severity: low
+applies_to: [web]
+params:
+  header: referrer-policy
+  must_exist: true
+  one_of: [no-referrer, same-origin, strict-origin, strict-origin-when-cross-origin]
+fix_hints:
+  nginx: 'add_header Referrer-Policy "strict-origin-when-cross-origin" always;'
+  express: "app.use(helmet.referrerPolicy({ policy: 'strict-origin-when-cross-origin' }))"
+  nestjs: 'app.use(helmet()) in main.ts'
+  nextjs: 'headers() in next.config: { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" }'
+side_effects: [header-budget-proxy-buffer]
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
+added_by: seed
+review: approved

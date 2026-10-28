@@ -1,0 +1,23 @@
+id: hdr-csp
+type: http_header
+title: Content-Security-Policy restricts script sources
+severity: medium
+applies_to: [web]
+params:
+  header: content-security-policy
+  must_exist: true
+  csp_forbid:
+    directive: script-src
+    fallback: default-src
+    tokens: ["'unsafe-inline'", "'unsafe-eval'", '*', 'http:', 'https:', 'data:']
+fix_hints:
+  nginx: "add_header Content-Security-Policy \"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'\" always;"
+  angular: 'Set the header in nginx or the CDN. AOT builds need no inline scripts; if one is required, use a CSP nonce (ngCspNonce).'
+  vue: 'Set the header in nginx or the CDN; Vite production builds do not need inline scripts.'
+  nextjs: 'headers() in next.config, or middleware that adds a per-request nonce for inline scripts.'
+  express: "app.use(helmet.contentSecurityPolicy({ directives: { scriptSrc: [\"'self'\"] } }))"
+  nestjs: "app.use(helmet({ contentSecurityPolicy: { directives: { scriptSrc: [\"'self'\"] } } })) in main.ts"
+side_effects: [header-budget-proxy-buffer]
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html
+added_by: seed
+review: approved

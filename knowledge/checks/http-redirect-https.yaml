@@ -1,0 +1,14 @@
+id: http-redirect-https
+type: http_redirect
+title: Plain HTTP permanently redirects to HTTPS on the same host
+severity: high
+applies_to: [web, api]
+params:
+  accepted_statuses: [301, 308]
+fix_hints:
+  nginx: 'server { listen 80; server_name _; return 301 https://$host$request_uri; }'
+  vercel: 'Vercel redirects HTTP to HTTPS automatically; confirm every custom domain is attached to the project.'
+  any: 'If a load balancer terminates TLS, add an HTTP:80 listener rule that redirects to HTTPS:443 with status 301.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html
+added_by: seed
+review: approved

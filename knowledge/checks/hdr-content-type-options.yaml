@@ -1,0 +1,18 @@
+id: hdr-content-type-options
+type: http_header
+title: X-Content-Type-Options is nosniff
+severity: low
+applies_to: [web, api]
+params:
+  header: x-content-type-options
+  must_exist: true
+  equals: nosniff
+fix_hints:
+  nginx: 'add_header X-Content-Type-Options "nosniff" always;'
+  express: 'app.use(helmet.noSniff())'
+  nestjs: 'app.use(helmet()) in main.ts'
+  nextjs: 'headers() in next.config: { key: "X-Content-Type-Options", value: "nosniff" }'
+side_effects: [header-budget-proxy-buffer]
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
+added_by: seed
+review: approved
