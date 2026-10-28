@@ -5,7 +5,7 @@ import { EvidenceStore } from '../../src/evidence/store.js';
 import { decodeSnapshot, type HostSnapshot } from '../../src/host/snapshot.js';
 import { validateProject } from '../../src/project/schema.js';
 import { verifyClaim } from '../../src/verify/claim.js';
-import { fixtureAdvisories } from '../helpers/advisories.js';
+import { fixtureAdvisories, staleAdvisories } from '../helpers/advisories.js';
 import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection, withSourceVersion } from '../helpers/snapshots.js';
 import { tempDir } from '../helpers/tmp.js';
 
@@ -272,5 +272,30 @@ describe('verifyClaim v2 fail-closed', () => {
     const r = await verify(fixtureSnapshot('debian-12'), 'CVE-2024-6387', { advisories });
     expect(r.packages.map((p) => p.verdict).sort()).toEqual(['fixed_in_installed', 'vulnerable']);
     expect(r.verdict).toBe('vulnerable');
+  });
+});
+
+describe('verifyClaim advisory freshness', () => {
+  it('reports as_of and stale=false for fresh data', async () => {
+    const r = await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387');
+    expect(r.stale).toBe(false);
+    expect(r.as_of).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('stale advisory data turns fixed_in_installed and not_affected into unverifiable', async () => {
+    for (const cve of ['CVE-2024-6387', 'CVE-2021-41617']) {
+      const advisories = await staleAdvisories(await tempDir(), (a) => a.ubuntu.cve(cve));
+      const r = await verify(fixtureSnapshot('ubuntu-24-04'), cve, { advisories });
+      expect(r).toMatchObject({ verdict: 'unverifiable', stale: true, as_of: '2026-10-20T00:00:00.000Z' });
+      expect(r.reason).toContain('advisory data is stale (as of 2026-10-20)');
+      expect(r.packages[0]?.note).toContain('advisory data is stale (as of 2026-10-20)');
+    }
+  });
+
+  it('stale data does not hide a vulnerable verdict', async () => {
+    const old = decodeSnapshot(withSourceVersion(fixtureEnvelope('ubuntu-24-04'), 'openssh', '1:9.6p1-3ubuntu13'));
+    const advisories = await staleAdvisories(await tempDir(), (a) => a.ubuntu.cve('CVE-2024-6387'));
+    const r = await verify(old, 'CVE-2024-6387', { advisories });
+    expect(r).toMatchObject({ verdict: 'vulnerable', stale: true });
   });
 });

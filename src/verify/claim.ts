@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { distroOf } from '../advisories/distro.js';
 import { fixedVersionFor } from '../advisories/osv.js';
-import type { Advisories } from '../advisories/types.js';
+import type { Advisories, Freshness } from '../advisories/types.js';
 import type { EvidenceStore } from '../evidence/store.js';
 import { ObservationError } from '../checks/errors.js';
 import { aptListsEmpty, classifyOrigin } from '../host/origin.js';
@@ -33,6 +33,10 @@ export interface ClaimResult {
   kev: boolean | null;
   source_url: string;
   snapshot: string;
+  /** Oldest fetch time of the advisory data used; absent when no advisory data was read. */
+  as_of?: string;
+  /** True when any advisory data came from a cached copy because its source was unreachable. */
+  stale?: boolean;
   evidence_id: string;
 }
 
@@ -205,6 +209,8 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
   if (!/^CVE-\d{4}-\d{4,}$/.test(cve)) throw new Error(`Not a CVE id: ${claim.cve}`);
   const now = deps.now ?? (() => new Date());
   const stored = await deps.snapshots.latest(deps.host.name);
+  deps.advisories.freshness?.();
+  let fresh: Freshness | undefined;
 
   let packages: PackageVerdict[] = [];
   let reason: string;
@@ -219,6 +225,12 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
     try {
       const judged = await judge(snap, cve, deps.advisories, sourceFilter(snap, claim.package));
       ({ packages, reason, source_url } = judged);
+      fresh = deps.advisories.freshness?.();
+      if (fresh?.stale) {
+        const asOf = fresh.as_of.slice(0, 10);
+        packages = downgradeSafe(packages, () => `advisory data is stale (as of ${asOf})`);
+        reason += ` Note: advisory data is stale (as of ${asOf}).`;
+      }
       const codename = distroOf(snap.os)?.codename ?? '';
       packages = downgradeSafe(packages, (p) => originConcern(snap, p.package, codename));
       const { state, ageDays } = snapshotFreshness(snap.collected_at, now());
@@ -248,6 +260,7 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
     reason += ' (CISA KEV was unavailable.)';
   }
 
+  const asOf = fresh ? { as_of: fresh.as_of, stale: fresh.stale } : {};
   const evidence_id = await deps.evidence.put('advisory', deps.host.name, `verify_claim ${cve}: ${verdict}`, {
     cve,
     host: deps.host.name,
@@ -257,6 +270,7 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
     packages,
     kev,
     source_url,
+    ...asOf,
   });
-  return { cve, host: deps.host.name, verdict, reason, packages, kev, source_url, snapshot, evidence_id };
+  return { cve, host: deps.host.name, verdict, reason, packages, kev, source_url, snapshot, ...asOf, evidence_id };
 }

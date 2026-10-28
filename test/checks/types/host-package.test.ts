@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ObservationError } from '../../../src/checks/errors.js';
 import { distroSources, findFixable, hostPackageCheck, hostPackageParams, skippedSourceCount } from '../../../src/checks/types/host-package.js';
 import { decodeSnapshot } from '../../../src/host/snapshot.js';
-import { fixtureAdvisories } from '../../helpers/advisories.js';
+import { fixtureAdvisories, staleAdvisories } from '../../helpers/advisories.js';
 import { hostSubject, makeCtx } from '../../helpers/ctx.js';
 import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection, withSourceVersion } from '../../helpers/snapshots.js';
 import { tempDir } from '../../helpers/tmp.js';
@@ -45,6 +45,43 @@ describe('distroSources with mixed binary versions', () => {
 describe('skippedSourceCount', () => {
   it('is zero when every package is from the distro', () => {
     expect(skippedSourceCount(fixtureSnapshot('ubuntu-24-04'), 'noble')).toBe(0);
+  });
+});
+
+describe('host_package advisories freshness', () => {
+  async function runWith(advisories: Awaited<ReturnType<typeof staleAdvisories>>, snap = fixtureSnapshot('ubuntu-24-04')) {
+    const { ctx } = await makeCtx({}, {}, { snapshots: readerFor(snap), advisories });
+    const out = await hostPackageCheck.run(ctx, hostSubject(ctx), P({ assert: 'advisories' }), {} as never);
+    return { out, record: await ctx.evidence.get(out.evidence_id as string) };
+  }
+  const warm = async (a: Awaited<ReturnType<typeof staleAdvisories>>) => {
+    const snap = fixtureSnapshot('ubuntu-24-04');
+    await findFixable(a, 'Ubuntu:24.04:LTS', distroSources(snap, 'noble'));
+  };
+
+  it('states the as-of date on a fresh pass and records it in the evidence', async () => {
+    const { out, record } = await runWith(fixtureAdvisories(await tempDir()));
+    expect(out.outcome).toBe('pass');
+    expect(out.observed).toMatch(/; advisory data as of \d{4}-\d{2}-\d{2}$/);
+    expect(out.observed).not.toContain('STALE');
+    expect(JSON.stringify(record)).toMatch(/"advisories_stale":false/);
+  });
+
+  it('marks a pass STALE when the advisories came from an expired cached copy', async () => {
+    const { out, record } = await runWith(await staleAdvisories(await tempDir(), warm));
+    expect(out.outcome).toBe('pass');
+    expect(out.observed).toContain('; advisory data as of 2026-10-20, STALE (cached copy; source unreachable)');
+    expect(JSON.stringify(record)).toMatch(/"advisories_as_of":"2026-10-20T00:00:00.000Z","advisories_stale":true/);
+  });
+
+  it('marks a fail STALE too', async () => {
+    const old = decodeSnapshot(withSourceVersion(fixtureEnvelope('ubuntu-24-04'), 'openssh', '1:9.6p1-3ubuntu13'));
+    const warmOld = async (a: Awaited<ReturnType<typeof staleAdvisories>>) => {
+      await findFixable(a, 'Ubuntu:24.04:LTS', distroSources(old, 'noble'));
+    };
+    const { out } = await runWith(await staleAdvisories(await tempDir(), warmOld), old);
+    expect(out.outcome).toBe('fail');
+    expect(out.observed).toContain('as of 2026-10-20, STALE');
   });
 });
 

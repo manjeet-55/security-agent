@@ -154,7 +154,9 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
       );
     }
     const skipped = skippedSourceCount(snapshot, distro.codename);
+    ctx.advisories.freshness?.();
     const { fixable, unfixed, kev_available } = await findFixable(ctx.advisories, distro.ecosystem, sources);
+    const fresh = ctx.advisories.freshness?.();
     const evidence_id = await ctx.evidence.put('advisory', name, `${sources.length} packages checked against ${distro.ecosystem}`, {
       ...base,
       ecosystem: distro.ecosystem,
@@ -163,14 +165,16 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
       fixable,
       unfixed,
       kev_available,
+      ...(fresh ? { advisories_as_of: fresh.as_of, advisories_stale: fresh.stale } : {}),
     });
+    const asOfNote = fresh ? `; advisory data as of ${fresh.as_of.slice(0, 10)}${fresh.stale ? ', STALE (cached copy; source unreachable)' : ''}` : '';
     const kevNote = kev_available ? '' : '; CISA KEV was unavailable, so known-exploited CVEs were not escalated';
     const skippedNote = skipped > 0 ? `; ${skipped} non-distro packages not checked (see host-package-third-party)` : '';
     if (fixable.length === 0) {
       const unfixedNote = unfixed > 0 ? `; ${unfixed} advisories have no released fix yet` : '';
       return {
         outcome: 'pass',
-        observed: `${sources.length} distro source packages checked against ${distro.ecosystem} advisories; no security fixes pending${unfixedNote}${kevNote}${skippedNote}`,
+        observed: `${sources.length} distro source packages checked against ${distro.ecosystem} advisories; no security fixes pending${unfixedNote}${kevNote}${skippedNote}${asOfNote}`,
         evidence_id,
       };
     }
@@ -179,7 +183,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     return {
       outcome: 'fail',
       severity,
-      observed: `${fixable.length} package(s) have security fixes not installed: ${fixable.slice(0, p.max_listed).map(describeFixable).join('; ')}${more}${kevNote}${skippedNote}`,
+      observed: `${fixable.length} package(s) have security fixes not installed: ${fixable.slice(0, p.max_listed).map(describeFixable).join('; ')}${more}${kevNote}${skippedNote}${asOfNote}`,
       evidence_id,
       details: { fixable },
     };

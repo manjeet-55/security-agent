@@ -55,3 +55,15 @@ export function fixtureFetch(extraKev: string[] = []): FetchJson & { calls: stri
 export function fixtureAdvisories(cacheDir: string, extraKev: string[] = []): Advisories {
   return createAdvisories({ cacheDir, fetchJson: fixtureFetch(extraKev) });
 }
+
+export const STALE_FETCHED_AT = '2026-10-20T00:00:00.000Z';
+
+/** Advisories whose cache was filled on 2026-10-20 and whose sources are unreachable now (10 days later): every answer is a stale copy. */
+export async function staleAdvisories(cacheDir: string, warm: (a: Advisories) => Promise<unknown>): Promise<Advisories> {
+  const t0 = new Date(STALE_FETCHED_AT);
+  await warm(createAdvisories({ cacheDir, fetchJson: fixtureFetch(), now: () => t0 }));
+  const offline: FetchJson = async () => {
+    throw new Error('offline');
+  };
+  return createAdvisories({ cacheDir, fetchJson: offline, now: () => new Date(t0.getTime() + 10 * 86_400_000) });
+}
