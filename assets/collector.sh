@@ -1,16 +1,24 @@
 #!/bin/sh
-# secagent host collector (schema 1). READ-ONLY: it only reads package, SSH, nginx and socket state.
+# secagent host collector (schema 1). Makes no intended writes: it reads package, SSH, nginx and socket state (nginx -T, like nginx -t, may create missing log/temp directories).
+# Requires sh, GNU sed and awk (Debian/Ubuntu defaults).
 # Run on the host as root so `sshd -T` and `nginx -T` work:  sudo sh collect.sh > snapshot.json
 # Output: one JSON object. Each section is base64 of the command output after secret redaction.
 set -u
 export LC_ALL=C
 
 redact() {
-  sed -E \
+  awk '
+    depth > 0 { if ($0 ~ /\}/) { depth = 0; print "    } # map/geo values redacted" }; next }
+    /^[ \t]*(map|geo)[ \t]/ && /\{/ {
+      if ($0 ~ /\}/) { sub(/\{.*\}/, "{ <redacted> }"); print; next }
+      sub(/\{.*/, "{ # map/geo values redacted"); print; depth = 1; next
+    }
+    { print }
+  ' | sed -E \
     -e 's/(\$[A-Za-z0-9_]*(secret|token|passw|api[_-]?key|private)[A-Za-z0-9_]*[[:space:]]+)[^;{]+/\1<redacted>/Ig' \
-    -e 's/((proxy_set_header|add_header|more_set_headers|grpc_set_header|fastcgi_param|uwsgi_param|scgi_param)[[:space:]]+"?[A-Za-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key)[A-Za-z0-9_-]*"?[[:space:]]+)[^;]+/\1<redacted>/Ig' \
+    -e 's/((proxy_set_header|add_header|more_set_headers|grpc_set_header|fastcgi_param|uwsgi_param|scgi_param)[[:space:]]+"?[A-Za-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[A-Za-z0-9_-]*"?[[:space:]]+)[^;]+/\1<redacted>/Ig' \
     -e 's/(Bearer[[:space:]]+)[A-Za-z0-9._~+\/=-]{8,}/\1<redacted>/g' \
-    -e 's#(://)[^/@[:space:]"]+:[^/@[:space:]"]+@#\1<redacted>@#g'
+    -e 's#(://)[^/[:space:]"]*@#\1<redacted>@#g'
 }
 
 first=1
