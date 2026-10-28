@@ -41,7 +41,7 @@ export function evaluatePorts(
 
 export const portExposureCheck: CheckType<PortExposureParams> = {
   type: 'port_exposure',
-  supports: ['web', 'api', 'host'],
+  supports: ['host'],
   params: portExposureParams,
   async run(ctx, subject, p) {
     const host = subjectHostname(subject);

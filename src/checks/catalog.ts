@@ -61,6 +61,15 @@ export async function loadCheckInstances(dir: string, knownTypes: ReadonlyMap<st
       errors.push(`${file}: unknown check type "${parsed.data.type}"`);
       continue;
     }
+    const unsupported = parsed.data.applies_to.filter((kind) => !type.supports.includes(kind));
+    if (unsupported.length > 0) {
+      errors.push(
+        ...unsupported.map(
+          (kind) => `${file}: applies_to "${kind}" is not supported by check type "${type.type}" (supports: ${type.supports.join(', ')})`,
+        ),
+      );
+      continue;
+    }
     const params = type.params.safeParse(parsed.data.params);
     if (!params.success) {
       errors.push(...params.error.issues.map((i) => `${file}: params.${i.path.join('.')}: ${i.message}`));

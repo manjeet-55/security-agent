@@ -46,6 +46,14 @@ describe('loadCheckInstances', () => {
     expect(message).toContain('c.yaml: quote');
   });
 
+  it('rejects an instance that applies to a kind its check type does not support', async () => {
+    const dir = await tempDir();
+    await writeFiles(dir, { 'bad.yaml': instance().replace('applies_to: [web]', 'applies_to: [host]') });
+    const err = await loadCheckInstances(dir, TYPES).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CatalogError);
+    expect((err as Error).message).toContain('bad.yaml: applies_to "host" is not supported by check type "fake" (supports: web)');
+  });
+
   it('rejects duplicate ids', async () => {
     const dir = await tempDir();
     await writeFiles(dir, { 'a.yaml': instance(), 'b.yaml': instance() });
