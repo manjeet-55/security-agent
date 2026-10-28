@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { formatScan, main, parseHostSpec, parseTargetSpec, UsageError } from '../src/cli.js';
+import { COLLECTOR_PATH } from '../src/host/collector.js';
+import { SnapshotStore } from '../src/host/store.js';
+import { initProject } from '../src/project/init.js';
 import { loadProject } from '../src/project/schema.js';
-import { tempDir } from './helpers/tmp.js';
+import { fixtureAdvisories } from './helpers/advisories.js';
+import { tempDir, writeFiles } from './helpers/tmp.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -75,5 +80,57 @@ describe('formatScan', () => {
     expect(lines[2]).toContain('HIGH');
     expect(lines[2]).toContain('big thing');
     expect(lines[3]).toContain('LOW');
+  });
+});
+
+describe('host commands', () => {
+  async function projectWithHost(): Promise<string> {
+    const dir = await tempDir();
+    await initProject(dir, { hosts: [{ name: 'web-1', address: '203.0.113.10', env: 'prod' }] });
+    return dir;
+  }
+
+  it('collector prints the script to stdout and instructions to stderr', async () => {
+    const out = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dir = await projectWithHost();
+    expect(await main(['collector', '--dir', dir, '--host', 'web-1'])).toBe(0);
+    expect(out).toHaveBeenCalledWith(readFileSync(COLLECTOR_PATH, 'utf8'));
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('secagent snapshot add --host web-1 web-1.json'));
+  });
+
+  it('collector refuses hosts that are not in project.yaml', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await main(['collector', '--dir', await projectWithHost(), '--host', 'nope'])).toBe(1);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('Unknown host "nope"'));
+  });
+
+  it('snapshot add validates and stores collector output', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dir = await projectWithHost();
+    const fixture = readFileSync(new URL('./fixtures/collector/ubuntu-24-04.json', import.meta.url), 'utf8');
+    await writeFiles(dir, { 'web-1.json': fixture, 'bad.json': '{}' });
+    expect(await main(['snapshot', 'add', '--dir', dir, '--host', 'web-1', `${dir}/web-1.json`])).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('Ubuntu 24.04'));
+    expect((await new SnapshotStore(dir).latest('web-1'))?.snapshot.os.codename).toBe('noble');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await main(['snapshot', 'add', '--dir', dir, '--host', 'web-1', `${dir}/bad.json`])).toBe(1);
+  });
+
+  it('verify prints a verdict using the stored snapshot', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dir = await projectWithHost();
+    await new SnapshotStore(dir).add('web-1', readFileSync(new URL('./fixtures/collector/ubuntu-24-04.json', import.meta.url), 'utf8'));
+    const code = await main(['verify', '--dir', dir, '--host', 'web-1', '--cve', 'CVE-2024-6387'], { advisories: fixtureAdvisories(await tempDir()) });
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith('CVE-2024-6387 on web-1: fixed_in_installed');
+  });
+
+  it('learn warms the advisory cache for stored snapshots', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dir = await projectWithHost();
+    await new SnapshotStore(dir).add('web-1', readFileSync(new URL('./fixtures/collector/ubuntu-24-04.json', import.meta.url), 'utf8'));
+    expect(await main(['learn', '--dir', dir], { advisories: fixtureAdvisories(await tempDir()) })).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^web-1: \d+ packages checked against Ubuntu:24\.04:LTS/));
   });
 });

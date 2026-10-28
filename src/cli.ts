@@ -1,15 +1,27 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
+import { defaultCacheDir } from './advisories/cache.js';
+import { distroOf } from './advisories/distro.js';
+import { createAdvisories } from './advisories/index.js';
+import type { Advisories } from './advisories/types.js';
 import { CatalogError } from './checks/catalog.js';
+import { ObservationError } from './checks/errors.js';
+import { distroSources } from './checks/types/host-package.js';
+import { EvidenceStore } from './evidence/store.js';
 import { resultKey } from './findings/ids.js';
 import type { ScanRecord } from './findings/schema.js';
+import { makeCollector } from './host/collector.js';
+import { SnapshotStore } from './host/store.js';
 import { initProject } from './project/init.js';
-import { ProjectConfigError } from './project/schema.js';
+import { loadProject, ProjectConfigError } from './project/schema.js';
+import { Scope, ScopeError } from './project/scope.js';
 import { scanNoAi } from './scan/no-ai.js';
 import { SEVERITY_RANK } from './types.js';
+import { verifyClaim, type ClaimResult } from './verify/claim.js';
 
 export class UsageError extends Error {
   constructor(message: string) {
@@ -30,6 +42,14 @@ Commands:
   scan    Run every check against the targets and hosts in project.yaml
             --dir <path>
             --no-ai                deterministic checks only, no AI triage
+  collector  Print the read-only host collector script (stdout) and how to run it (stderr)
+            --dir <path>   --host <name>   --out <file>
+  snapshot add  Validate and store collector output for a host
+            --dir <path>   --host <name>   <file>
+  verify     Verdict on a scanner's CVE claim for a host, from its snapshot and distro advisories
+            --dir <path>   --host <name>   --cve <CVE-id>   [--package <name>]   [--json]
+  learn      Refresh CISA KEV and the package advisories for every stored host snapshot
+            --dir <path>
 `;
 
 export function parseTargetSpec(spec: string): { id: string; url: string; type: 'web' | 'api'; env: string } {
@@ -109,7 +129,120 @@ async function runScan(args: string[]): Promise<number> {
   return 0;
 }
 
-export async function main(argv: readonly string[]): Promise<number> {
+export interface CliDeps {
+  /** Injected advisory sources (tests); defaults to live clients with the user cache. */
+  advisories?: Advisories;
+}
+
+export function formatClaim(r: ClaimResult): string[] {
+  return [
+    `${r.cve} on ${r.host}: ${r.verdict}${r.kev === true ? ' (CISA KEV: known exploited)' : ''}`,
+    `  ${r.reason}`,
+    ...r.packages.map(
+      (p) => `  ${p.package}: installed ${p.installed ?? '-'}, distro status ${p.distro_status}${p.fixed ? `, fixed in ${p.fixed}` : ''} → ${p.verdict}`,
+    ),
+    ...(r.source_url ? [`  source: ${r.source_url}`] : []),
+    `  evidence: ${r.evidence_id}`,
+  ];
+}
+
+async function runCollector(args: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    strict: true,
+    options: { dir: { type: 'string', default: '.' }, host: { type: 'string' }, out: { type: 'string' } },
+  });
+  const dir = path.resolve(values.dir);
+  if (values.host) new Scope(await loadProject(dir)).host(values.host);
+  const bundle = await makeCollector(dir, values.host ?? 'HOST');
+  if (values.out) {
+    await writeFile(values.out, bundle.script, 'utf8');
+    console.error(`Wrote ${values.out}`);
+  } else {
+    process.stdout.write(bundle.script);
+  }
+  console.error(bundle.instructions);
+  return 0;
+}
+
+async function runSnapshot(args: string[]): Promise<number> {
+  const [sub, ...rest] = args;
+  const usage = 'Usage: secagent snapshot add --host <name> [--dir <path>] <file>';
+  if (sub !== 'add') throw new UsageError(usage);
+  const { values, positionals } = parseArgs({
+    args: rest,
+    strict: true,
+    allowPositionals: true,
+    options: { dir: { type: 'string', default: '.' }, host: { type: 'string' } },
+  });
+  const file = positionals[0];
+  if (!values.host || !file) throw new UsageError(usage);
+  const dir = path.resolve(values.dir);
+  new Scope(await loadProject(dir)).host(values.host);
+  const { snapshot, file: stored } = await new SnapshotStore(dir).add(values.host, await readFile(path.resolve(file), 'utf8'));
+  const rootNote = snapshot.is_root ? '' : ' (not run as root: sshd/nginx sections may be unreadable)';
+  console.log(`Stored ${stored}: ${snapshot.os.pretty_name || snapshot.os.id}, ${snapshot.packages.length} packages, collected ${snapshot.collected_at}${rootNote}`);
+  return 0;
+}
+
+async function runVerify(args: string[], deps: CliDeps): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    strict: true,
+    options: {
+      dir: { type: 'string', default: '.' },
+      host: { type: 'string' },
+      cve: { type: 'string' },
+      package: { type: 'string' },
+      json: { type: 'boolean', default: false },
+    },
+  });
+  if (!values.host || !values.cve) throw new UsageError('Usage: secagent verify --host <name> --cve <CVE-id> [--package <name>] [--dir <path>] [--json]');
+  const dir = path.resolve(values.dir);
+  const project = await loadProject(dir);
+  const host = new Scope(project).host(values.host);
+  const result = await verifyClaim(
+    {
+      host,
+      snapshots: new SnapshotStore(dir),
+      advisories: deps.advisories ?? createAdvisories(),
+      evidence: new EvidenceStore(dir, project.network.scan_label),
+    },
+    { cve: values.cve, ...(values.package ? { package: values.package } : {}) },
+  );
+  if (values.json) console.log(JSON.stringify(result, null, 2));
+  else for (const line of formatClaim(result)) console.log(line);
+  return 0;
+}
+
+async function runLearn(args: string[], deps: CliDeps): Promise<number> {
+  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  const dir = path.resolve(values.dir);
+  const project = await loadProject(dir);
+  const advisories = deps.advisories ?? createAdvisories();
+  const store = new SnapshotStore(dir);
+  console.log(`CISA KEV: ${(await advisories.kev.catalog()).size} known-exploited CVEs cached`);
+  for (const host of project.hosts) {
+    const stored = await store.latest(host.name);
+    if (!stored) {
+      console.log(`${host.name}: no snapshot, skipped`);
+      continue;
+    }
+    const distro = distroOf(stored.snapshot.os);
+    if (!distro) {
+      console.log(`${host.name}: ${stored.snapshot.os.id || 'unknown OS'} is not supported, skipped`);
+      continue;
+    }
+    const sources = distroSources(stored.snapshot, distro.codename);
+    const affected = await advisories.osv.affected(distro.ecosystem, sources);
+    for (const q of sources.filter((s) => affected.has(s.name))) await advisories.osv.vulnsFor(distro.ecosystem, q);
+    console.log(`${host.name}: ${sources.length} packages checked against ${distro.ecosystem}; ${affected.size} with advisories cached`);
+  }
+  console.log(`Advisory cache: ${defaultCacheDir()}`);
+  return 0;
+}
+
+export async function main(argv: readonly string[], deps: CliDeps = {}): Promise<number> {
   const [command, ...rest] = argv;
   try {
     switch (command) {
@@ -117,6 +250,14 @@ export async function main(argv: readonly string[]): Promise<number> {
         return await runInit(rest);
       case 'scan':
         return await runScan(rest);
+      case 'collector':
+        return await runCollector(rest);
+      case 'snapshot':
+        return await runSnapshot(rest);
+      case 'verify':
+        return await runVerify(rest, deps);
+      case 'learn':
+        return await runLearn(rest, deps);
       case undefined:
       case 'help':
       case '--help':
@@ -128,7 +269,13 @@ export async function main(argv: readonly string[]): Promise<number> {
         return 1;
     }
   } catch (e) {
-    if (e instanceof UsageError || e instanceof ProjectConfigError || e instanceof CatalogError) {
+    if (
+      e instanceof UsageError ||
+      e instanceof ProjectConfigError ||
+      e instanceof CatalogError ||
+      e instanceof ScopeError ||
+      e instanceof ObservationError
+    ) {
       console.error(e.message);
       return 1;
     }
