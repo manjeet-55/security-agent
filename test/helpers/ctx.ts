@@ -7,7 +7,7 @@ import type { NetClient } from '../../src/net/scoped.js';
 import { validateProject } from '../../src/project/schema.js';
 import { tempDir } from './tmp.js';
 
-export const FIXED_NOW = new Date('2026-10-28T10:00:00.000Z');
+export const FIXED_NOW = new Date('2026-10-28T15:00:00.000Z');
 
 export function fakeObs(partial: Partial<HttpObservation> = {}): HttpObservation {
   return {

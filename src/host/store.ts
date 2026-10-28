@@ -6,6 +6,21 @@ import { decodeSnapshot, SnapshotEnvelopeSchema, type HostSnapshot } from './sna
 
 export const MAX_SNAPSHOT_AGE_DAYS = 7;
 
+/** How far ahead of the clock a snapshot's collected_at may be before it is rejected as bogus. */
+export const MAX_FUTURE_SKEW_MS = 3_600_000;
+
+/** `future` = collected_at is more than an hour ahead of `now`; `stale` = older than MAX_SNAPSHOT_AGE_DAYS. */
+export function snapshotFreshness(collectedAt: string, now: Date): { state: 'fresh' | 'stale' | 'future'; ageDays: number } {
+  const ageMs = now.getTime() - Date.parse(collectedAt);
+  const ageDays = ageMs / 86_400_000;
+  if (-ageMs > MAX_FUTURE_SKEW_MS) return { state: 'future', ageDays };
+  return { state: ageDays > MAX_SNAPSHOT_AGE_DAYS ? 'stale' : 'fresh', ageDays };
+}
+
+export function assertHostName(host: string): void {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(host)) throw new ObservationError('SNAPSHOT_INVALID', `Invalid host name "${host}"`);
+}
+
 export interface StoredSnapshot {
   snapshot: HostSnapshot;
   file: string;
@@ -19,12 +34,15 @@ export interface SnapshotReader {
 export class SnapshotStore implements SnapshotReader {
   readonly dir: string;
 
-  constructor(projectDir: string) {
+  constructor(
+    projectDir: string,
+    private readonly now: () => Date = () => new Date(),
+  ) {
     this.dir = path.join(projectStateDir(projectDir), 'hosts');
   }
 
   async add(host: string, text: string): Promise<StoredSnapshot> {
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(host)) throw new ObservationError('SNAPSHOT_INVALID', `Invalid host name "${host}"`);
+    assertHostName(host);
     let raw: unknown;
     try {
       raw = JSON.parse(text);
@@ -32,6 +50,9 @@ export class SnapshotStore implements SnapshotReader {
       throw new ObservationError('SNAPSHOT_INVALID', `Snapshot is not JSON: ${(e as Error).message}`);
     }
     const snapshot = decodeSnapshot(raw);
+    if (Date.parse(snapshot.collected_at) - this.now().getTime() > MAX_FUTURE_SKEW_MS) {
+      throw new ObservationError('SNAPSHOT_INVALID', `Snapshot collected_at ${snapshot.collected_at} is in the future; check the clock on the host.`);
+    }
     const file = path.join(this.dir, host, `${snapshot.collected_at.replace(/[-:]/g, '')}.json`);
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, `${JSON.stringify(SnapshotEnvelopeSchema.parse(raw))}\n`, 'utf8');
@@ -39,6 +60,7 @@ export class SnapshotStore implements SnapshotReader {
   }
 
   async latest(host: string): Promise<StoredSnapshot | undefined> {
+    assertHostName(host);
     let names: string[];
     try {
       names = await readdir(path.join(this.dir, host));

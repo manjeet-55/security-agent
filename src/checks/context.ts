@@ -1,6 +1,6 @@
 import type { Advisories } from '../advisories/types.js';
 import type { EvidenceStore } from '../evidence/store.js';
-import { MAX_SNAPSHOT_AGE_DAYS, type SnapshotReader, type StoredSnapshot } from '../host/store.js';
+import { MAX_SNAPSHOT_AGE_DAYS, snapshotFreshness, type SnapshotReader, type StoredSnapshot } from '../host/store.js';
 import type { HttpObservation } from '../net/http.js';
 import { stripBrackets } from '../net/ip.js';
 import type { NetClient } from '../net/scoped.js';
@@ -73,8 +73,14 @@ export function getSnapshot(ctx: CheckContext, host: Host): Promise<StoredSnapsh
         `No collector snapshot for host "${host.name}". Run "secagent collector --host ${host.name}", run it on the host, then "secagent snapshot add --host ${host.name} <file>".`,
       );
     }
-    const ageDays = (ctx.now().getTime() - Date.parse(stored.snapshot.collected_at)) / 86_400_000;
-    if (ageDays > MAX_SNAPSHOT_AGE_DAYS) {
+    const { state, ageDays } = snapshotFreshness(stored.snapshot.collected_at, ctx.now());
+    if (state === 'future') {
+      throw new ObservationError(
+        'SNAPSHOT_INVALID',
+        `The newest snapshot for host "${host.name}" is dated ${stored.snapshot.collected_at}, in the future; check the clock on the host and re-run the collector.`,
+      );
+    }
+    if (state === 'stale') {
       throw new ObservationError(
         'SNAPSHOT_STALE',
         `The newest snapshot for host "${host.name}" is ${Math.floor(ageDays)} days old (limit ${MAX_SNAPSHOT_AGE_DAYS}). Re-run the collector.`,

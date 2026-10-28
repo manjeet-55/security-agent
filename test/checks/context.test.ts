@@ -56,4 +56,10 @@ describe('getSnapshot', () => {
     expect(err).toBeInstanceOf(ObservationError);
     expect((err as ObservationError).code).toBe('SNAPSHOT_STALE');
   });
+
+  it('refuses a future-dated snapshot as invalid', async () => {
+    const future = { ...fixtureSnapshot('debian-12'), collected_at: '2026-10-28T17:00:00Z' };
+    const { ctx } = await makeCtx({}, {}, { snapshots: readerFor(future) });
+    await expect(getSnapshot(ctx, hostSubject(ctx).host)).rejects.toMatchObject({ code: 'SNAPSHOT_INVALID' });
+  });
 });
