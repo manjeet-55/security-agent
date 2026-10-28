@@ -1,0 +1,12 @@
+id: host-reboot-pending
+type: host_package
+title: No reboot is pending after updates
+severity: medium
+applies_to: [host]
+params:
+  assert: reboot
+fix_hints:
+  any: 'Schedule a reboot (or use livepatch for the kernel); until then the running kernel and libraries are the old, vulnerable versions.'
+source_url: https://wiki.debian.org/UnattendedUpgrades
+added_by: seed
+review: approved

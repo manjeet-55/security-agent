@@ -1,0 +1,13 @@
+id: host-package-advisories
+type: host_package
+title: Installed packages have no distro security fixes pending
+severity: high
+applies_to: [host]
+params:
+  assert: advisories
+  max_listed: 5
+fix_hints:
+  any: 'apt-get update && apt-get upgrade (or unattended-upgrade -d for security-only), then reboot if /var/run/reboot-required exists.'
+source_url: https://ubuntu.com/security/notices
+added_by: seed
+review: approved

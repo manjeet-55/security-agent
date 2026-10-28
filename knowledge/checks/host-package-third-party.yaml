@@ -1,0 +1,13 @@
+id: host-package-third-party
+type: host_package
+title: Packages outside distro repositories are known and patched separately
+severity: medium
+applies_to: [host]
+params:
+  assert: third_party
+  max_listed: 10
+fix_hints:
+  any: 'For each listed package, either switch to the distro package or add its vendor repository to unattended-upgrades (Unattended-Upgrade::Origins-Pattern) and track the vendor security advisories (e.g. nginx.org/en/security_advisories.html).'
+source_url: https://wiki.debian.org/UnattendedUpgrades
+added_by: seed
+review: approved
