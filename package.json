@@ -9,7 +9,8 @@
   "files": [
     "dist",
     "knowledge",
-    "agent"
+    "agent",
+    "assets"
   ],
   "engines": {
     "node": ">=20.19"
