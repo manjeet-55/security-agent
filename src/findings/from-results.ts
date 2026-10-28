@@ -5,7 +5,10 @@ import { selectFix } from './fix.js';
 import { resultKey } from './ids.js';
 import type { Finding, ScanRecord } from './schema.js';
 
-/** Deterministic (--no-ai) mapping: fail → open, unverifiable/error → unverifiable, previously open now passing → fixed. */
+/**
+ * Deterministic (--no-ai) mapping: fail → open, unverifiable/error → unverifiable, previously open now passing → fixed.
+ * A finding that was open stays open (not re-verified, verified_at unchanged) when its check is unverifiable or errors.
+ */
 export function resultsToFindings(
   results: readonly CheckResult[],
   instances: ReadonlyMap<string, CheckInstance>,
@@ -20,6 +23,27 @@ export function resultsToFindings(
   for (const r of results) {
     const id = resultKey(r);
     const prev = previousById.get(id);
+    const inst = instances.get(r.check_id);
+    if ((r.outcome === 'unverifiable' || r.outcome === 'error') && prev?.status === 'open') {
+      findings.push({
+        id,
+        check_id: r.check_id,
+        target: r.target,
+        severity: prev.severity,
+        ...(prev.severity_reason ? { severity_reason: prev.severity_reason } : {}),
+        status: 'open',
+        title: r.title,
+        evidence: [...new Set([r.evidence_id, ...prev.evidence])],
+        reasoning: `Not re-verified this scan (check outcome: ${r.outcome}); the previous open status stands. Observed: ${r.observed}`,
+        ...(inst ? { fix: selectFix(inst, stack) } : {}),
+        refs: inst ? [inst.source_url] : [],
+        knowledge: inst ? [inst.id] : [],
+        first_seen: prev.first_seen,
+        last_seen: prev.last_seen,
+        verified_at: prev.verified_at,
+      });
+      continue;
+    }
     const status: FindingStatus | undefined =
       r.outcome === 'fail'
         ? 'open'
@@ -30,7 +54,6 @@ export function resultsToFindings(
             : undefined;
     if (status === undefined) continue;
 
-    const inst = instances.get(r.check_id);
     findings.push({
       id,
       check_id: r.check_id,

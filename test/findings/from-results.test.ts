@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CheckInstanceSchema, type CheckInstance } from '../../src/checks/catalog.js';
+import { diffScans } from '../../src/findings/diff.js';
 import { resultsToFindings } from '../../src/findings/from-results.js';
 import type { ScanRecord } from '../../src/findings/schema.js';
 import type { CheckResult, Outcome, Severity } from '../../src/types.js';
@@ -48,5 +49,43 @@ describe('resultsToFindings', () => {
     } satisfies ScanRecord;
     const [f] = resultsToFindings([result('pass')], INSTANCES, previous, {}, NOW);
     expect(f).toMatchObject({ status: 'fixed', first_seen: '2026-10-27T10:00:00.000Z', last_seen: NOW.toISOString() });
+  });
+});
+
+describe('carry-forward of open findings through unverifiable scans', () => {
+  const T1 = new Date('2026-10-27T10:00:00.000Z');
+  const T2 = new Date('2026-10-28T10:00:00.000Z');
+  const T3 = new Date('2026-10-29T10:00:00.000Z');
+  const EV2 = 'ev_20261028T100000Z_00000002';
+  const EV3 = 'ev_20261029T100000Z_00000003';
+  const at = (outcome: Outcome, evidence_id: string, severity: Severity = 'medium'): CheckResult => ({ ...result(outcome, severity), evidence_id });
+  const scan = (results: CheckResult[], previous: ScanRecord | undefined, when: Date): ScanRecord => {
+    const findings = resultsToFindings(results, INSTANCES, previous, {}, when);
+    return { schema: 1, scanned_at: when.toISOString(), scan_label: 't', mode: 'no-ai', results, findings, diff: diffScans(previous, { results, findings }) };
+  };
+  const first = () => scan([at('fail', EV, 'high')], undefined, T1);
+
+  it.each(['unverifiable', 'error'] as const)('keeps an open finding open when the next scan is %s', (outcome) => {
+    const second = scan([at(outcome, EV2)], first(), T2);
+    const [f] = second.findings;
+    expect(f).toMatchObject({
+      status: 'open', severity: 'high', evidence: [EV2, EV], first_seen: T1.toISOString(), last_seen: T1.toISOString(), verified_at: T1.toISOString(),
+    });
+    expect(f?.reasoning).toContain(`Not re-verified this scan (check outcome: ${outcome}); the previous open status stands.`);
+    expect(f?.fix).toBeDefined();
+  });
+
+  it('becomes fixed when a pass follows the unverifiable scan', () => {
+    const second = scan([at('unverifiable', EV2)], first(), T2);
+    const third = scan([at('pass', EV3)], second, T3);
+    expect(third.findings[0]?.status).toBe('fixed');
+    expect(third.diff.fixed).toEqual(['hdr-hsts@app']);
+  });
+
+  it('is not reported as new when a fail follows the unverifiable scan', () => {
+    const second = scan([at('unverifiable', EV2)], first(), T2);
+    const third = scan([at('fail', EV3, 'high')], second, T3);
+    expect(third.diff.new).toEqual([]);
+    expect(third.findings[0]).toMatchObject({ status: 'open', first_seen: T1.toISOString(), verified_at: T3.toISOString() });
   });
 });
