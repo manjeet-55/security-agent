@@ -11,11 +11,12 @@ export interface JsonResponse {
 
 export type FetchJson = (url: string, init?: { method?: 'GET' | 'POST'; body?: unknown }) => Promise<JsonResponse>;
 
-/** HTTPS JSON fetch restricted to allowlisted advisory hosts. Verifies certificates, follows no redirects, enforces a timeout and a size cap. */
+/** HTTPS JSON fetch restricted to allowlisted advisory hosts. Verifies certificates, follows no redirects, enforces an idle timeout, a total deadline and a size cap. */
 export function createFetchJson(
-  opts: { timeoutMs?: number; maxBytes?: number; allowHosts?: ReadonlySet<string> } = {},
+  opts: { timeoutMs?: number; totalTimeoutMs?: number; maxBytes?: number; allowHosts?: ReadonlySet<string> } = {},
 ): FetchJson {
   const timeoutMs = opts.timeoutMs ?? 30_000;
+  const totalTimeoutMs = opts.totalTimeoutMs ?? 30_000;
   const maxBytes = opts.maxBytes ?? 8 * 1024 * 1024;
   const allow = opts.allowHosts ?? ADVISORY_HOSTS;
   return (url, init = {}) =>
@@ -31,6 +32,7 @@ export function createFetchJson(
         {
           method: init.method ?? 'GET',
           timeout: timeoutMs,
+          rejectUnauthorized: true,
           headers: {
             accept: 'application/json',
             'user-agent': USER_AGENT,
@@ -61,6 +63,11 @@ export function createFetchJson(
           res.on('error', reject);
         },
       );
+      const deadline = setTimeout(
+        () => req.destroy(new Error(`${u.hostname} did not finish answering within ${totalTimeoutMs}ms`)),
+        totalTimeoutMs,
+      );
+      req.on('close', () => clearTimeout(deadline));
       req.on('timeout', () => req.destroy(new Error(`${u.hostname} did not answer within ${timeoutMs}ms`)));
       req.on('error', reject);
       req.end(body);

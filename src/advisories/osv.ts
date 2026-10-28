@@ -4,6 +4,7 @@ import type { OsvSource, OsvVuln, PackageQuery } from './types.js';
 
 const OSV = 'https://api.osv.dev/v1';
 const BATCH = 1000;
+const MAX_PAGES = 50;
 
 /** A 404 or non-object body is a missing answer, never an empty one: throw so the cache serves stale or reports unavailable. */
 function requireBody<T>(res: JsonResponse, what: string): T {
@@ -44,7 +45,10 @@ export class OsvClient implements OsvSource {
     const { value } = await this.cache.getOrFetch('osv', `query ${ecosystem} ${query.name}@${query.version}`, TTL.osv, async () => {
       const vulns: OsvVuln[] = [];
       let pageToken: string | undefined;
+      let pages = 0;
       do {
+        if (pages >= MAX_PAGES) throw new Error(`OSV query for ${query.name} has more than ${MAX_PAGES} pages`);
+        pages += 1;
         const res = await this.fetchJson(`${OSV}/query`, {
           method: 'POST',
           body: { package: { name: query.name, ecosystem }, version: query.version, ...(pageToken ? { page_token: pageToken } : {}) },

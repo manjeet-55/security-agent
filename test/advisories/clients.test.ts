@@ -92,6 +92,17 @@ describe('missing advisory responses are unavailable, not clean', () => {
   const notFound: FetchJson = async () => ({ status: 404, json: null });
   const unavailable = expect.objectContaining({ name: 'ObservationError', code: 'ADVISORY_UNAVAILABLE' });
 
+  it('vulnsFor stops after 50 pages instead of paginating forever', async () => {
+    let calls = 0;
+    const endless: FetchJson = async () => {
+      calls += 1;
+      return { status: 200, json: { vulns: [], next_page_token: `t${calls}` } };
+    };
+    const osv = new OsvClient(endless, new AdvisoryCache(await tempDir()));
+    await expect(osv.vulnsFor(NOBLE, { name: 'openssh', version: '1' })).rejects.toEqual(unavailable);
+    expect(calls).toBe(50);
+  });
+
   it('affected rejects on a 404 querybatch', async () => {
     const osv = new OsvClient(notFound, new AdvisoryCache(await tempDir()));
     const p = osv.affected(NOBLE, [{ name: 'openssh', version: '1' }]);
