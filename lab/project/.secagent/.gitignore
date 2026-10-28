@@ -1,0 +1,6 @@
+# Sensitive, machine-specific scan state. Only project.yaml and knowledge/ are committed.
+hosts/
+external/
+evidence/
+findings/
+reports/

@@ -1,0 +1,2 @@
+# Accepted risks. Each entry: finding_id, owner, reason, expires (YYYY-MM-DD).
+exceptions: []

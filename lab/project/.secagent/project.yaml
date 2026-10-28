@@ -1,0 +1,31 @@
+# secagent project config. Targets and hosts listed here are the ONLY things secagent will probe.
+version: 1
+name: secagent-lab
+stack: {}
+network:
+  ip_family: 4
+  scan_label: local-lab
+targets:
+  - id: bad-site
+    url: https://172.31.250.10
+    type: web
+    env: lab
+    allow_private: false
+  - id: good-site
+    url: https://172.31.250.11
+    type: web
+    env: lab
+    allow_private: false
+hosts:
+  - name: bad-host
+    address: 172.31.250.10
+    env: lab
+    reachable_from: []
+    serves: []
+    allow_private: false
+  - name: good-host
+    address: 172.31.250.11
+    env: lab
+    reachable_from: []
+    serves: []
+    allow_private: false
