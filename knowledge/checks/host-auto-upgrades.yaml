@@ -1,0 +1,12 @@
+id: host-auto-upgrades
+type: host_config
+title: Automatic security updates are enabled
+severity: medium
+applies_to: [host]
+params:
+  rule: auto_upgrades
+fix_hints:
+  any: 'apt-get install unattended-upgrades && dpkg-reconfigure -plow unattended-upgrades (writes APT::Periodic::Unattended-Upgrade "1" to /etc/apt/apt.conf.d/20auto-upgrades).'
+source_url: https://wiki.debian.org/UnattendedUpgrades
+added_by: seed
+review: approved

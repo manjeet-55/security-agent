@@ -1,0 +1,15 @@
+id: host-nginx-ssl-protocols
+type: host_config
+title: nginx ssl_protocols excludes SSLv3, TLS 1.0 and TLS 1.1
+severity: medium
+applies_to: [host]
+params:
+  rule: nginx_directive
+  directive: ssl_protocols
+  forbid_tokens: [SSLv2, SSLv3, TLSv1, TLSv1.1]
+  when_absent: unverifiable
+fix_hints:
+  nginx: 'ssl_protocols TLSv1.2 TLSv1.3;  in every http/server block that sets it (Ubuntu and Debian ship TLSv1 and TLSv1.1 in nginx.conf), then nginx -t && systemctl reload nginx'
+source_url: https://nginx.org/en/docs/http/ngx_http_ssl_module.html#ssl_protocols
+added_by: seed
+review: approved

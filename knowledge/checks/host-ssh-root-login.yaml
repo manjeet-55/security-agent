@@ -1,0 +1,14 @@
+id: host-ssh-root-login
+type: host_config
+title: SSH root login is disabled or key-only
+severity: medium
+applies_to: [host]
+params:
+  rule: sshd_value
+  key: permitrootlogin
+  allowed: ['no', 'prohibit-password', 'without-password', 'forced-commands-only']
+fix_hints:
+  any: 'Set "PermitRootLogin no" (or prohibit-password) in sshd_config, run "sshd -t", then reload ssh.'
+source_url: https://man.openbsd.org/sshd_config
+added_by: seed
+review: approved

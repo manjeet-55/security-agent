@@ -1,0 +1,13 @@
+id: host-listening-databases
+type: host_config
+title: Databases and admin services do not listen on all interfaces
+severity: high
+applies_to: [host]
+params:
+  rule: listening
+  forbid_public_ports: [2375, 3306, 5432, 6379, 9200, 11211, 27017]
+fix_hints:
+  any: 'Bind the service to 127.0.0.1 or a private interface (e.g. postgresql listen_addresses, redis bind, mysqld bind-address) and keep the security group closed to the internet.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Attack_Surface_Analysis_Cheat_Sheet.html
+added_by: seed
+review: approved

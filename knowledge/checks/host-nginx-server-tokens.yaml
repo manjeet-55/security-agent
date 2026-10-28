@@ -1,0 +1,15 @@
+id: host-nginx-server-tokens
+type: host_config
+title: nginx hides its version (server_tokens off)
+severity: low
+applies_to: [host]
+params:
+  rule: nginx_directive
+  directive: server_tokens
+  equals: 'off'
+  absent_default: 'on'
+fix_hints:
+  nginx: 'server_tokens off;  in the http block of /etc/nginx/nginx.conf, then nginx -t && systemctl reload nginx'
+source_url: https://nginx.org/en/docs/http/ngx_http_core_module.html#server_tokens
+added_by: seed
+review: approved

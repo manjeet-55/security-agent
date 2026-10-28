@@ -1,6 +1,7 @@
 import type { AnyCheckType } from './check-type.js';
 import { exposedPathCheck } from './types/exposed-path.js';
 import { headerBudgetCheck } from './types/header-budget.js';
+import { hostConfigCheck } from './types/host-config.js';
 import { httpCookieCheck } from './types/http-cookie.js';
 import { httpHeaderCheck } from './types/http-header.js';
 import { httpRedirectCheck } from './types/http-redirect.js';
@@ -13,6 +14,7 @@ const ALL: AnyCheckType[] = [
   httpHeaderCheck,
   httpCookieCheck,
   headerBudgetCheck,
+  hostConfigCheck,
   exposedPathCheck,
   tlsCheck,
   portExposureCheck,
