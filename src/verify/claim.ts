@@ -99,6 +99,7 @@ async function judge(snap: HostSnapshot, cve: string, advisories: Advisories, on
     const source_url = `https://ubuntu.com/security/${cve}`;
     const record = await advisories.ubuntu.cve(cve);
     if (!record) return { packages: [], reason: `Ubuntu has no record of ${cve}.`, source_url, whenEmpty: 'unverifiable' };
+    if (record.packages.length === 0) return { packages: [], reason: `Ubuntu's record for ${cve} lists no packages.`, source_url, whenEmpty: 'unverifiable' };
     const tracked = record.packages.filter((p) => only === undefined || p.name === only);
     if (only !== undefined && tracked.length === 0) {
       const all = record.packages.map((p) => p.name).join(', ') || 'none';
@@ -134,6 +135,9 @@ async function judge(snap: HostSnapshot, cve: string, advisories: Advisories, on
   const source_url = `https://security-tracker.debian.org/tracker/${cve}`;
   const record = await advisories.osv.vuln(`DEBIAN-${cve}`);
   if (!record) return { packages: [], reason: `The Debian security tracker (via OSV) has no record of ${cve}.`, source_url, whenEmpty: 'unverifiable' };
+  if ((record.affected ?? []).length === 0) {
+    return { packages: [], reason: `The Debian record for ${cve} lists no packages.`, source_url, whenEmpty: 'unverifiable' };
+  }
   const entries = (record.affected ?? []).filter((a) => only === undefined || a.package.name === only);
   if (only !== undefined && entries.length === 0) {
     const all = [...new Set((record.affected ?? []).map((a) => a.package.name))].join(', ') || 'none';

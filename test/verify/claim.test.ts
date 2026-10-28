@@ -102,6 +102,14 @@ describe('verifyClaim fails closed', () => {
     expect(r.verdict).toBe('unverifiable');
   });
 
+  it('unverifiable when the Ubuntu record tracks no packages', async () => {
+    const advisories = fixtureAdvisories(await tempDir());
+    advisories.ubuntu = { cve: async (id: string) => ({ id, packages: [] }) } as unknown as Advisories['ubuntu'];
+    const r = await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { advisories });
+    expect(r.verdict).toBe('unverifiable');
+    expect(r.reason).toBe("Ubuntu's record for CVE-2024-6387 lists no packages.");
+  });
+
   it('kev is null when CISA KEV is unavailable', async () => {
     const advisories = fixtureAdvisories(await tempDir());
     advisories.kev = {
@@ -127,6 +135,14 @@ describe('verifyClaim on Debian and edge cases', () => {
     const none = await verify(undefined, 'CVE-2024-6387');
     expect(none.verdict).toBe('unverifiable');
     expect(none.reason).toContain('No collector snapshot');
+  });
+
+  it('unverifiable when the Debian record lists no packages', async () => {
+    const advisories = fixtureAdvisories(await tempDir());
+    advisories.osv = { ...advisories.osv, vuln: async (id: string) => ({ id, affected: [] }) } as unknown as Advisories['osv'];
+    const r = await verify(fixtureSnapshot('debian-12'), 'CVE-2024-6387', { advisories });
+    expect(r.verdict).toBe('unverifiable');
+    expect(r.reason).toBe('The Debian record for CVE-2024-6387 lists no packages.');
   });
 
   it('rejects a malformed CVE id', async () => {
