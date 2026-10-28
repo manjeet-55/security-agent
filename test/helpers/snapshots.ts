@@ -39,6 +39,18 @@ export function withSourceVersion(env: SnapshotEnvelope, source: string, version
   return withSection(env, 'packages', lines.join('\n'));
 }
 
+/**
+ * Every openssh-source binary reports `version` and is served only from `url` (suite noble/main), as a vendor build
+ * from a repository that reuses the distro codename. Later apt-cache blocks override earlier ones.
+ */
+export function withVendorOpenssh(env: SnapshotEnvelope, url: string, version = '1:9.7p1-1~vendor1'): SnapshotEnvelope {
+  let policy = sectionOf(withSourceVersion(env, 'openssh', version), 'apt_policy');
+  for (const bin of ['openssh-client', 'openssh-server', 'openssh-sftp-server']) {
+    policy += `\n${bin}:\n  Installed: ${version}\n  Candidate: ${version}\n  Version table:\n *** ${version} 500\n        500 ${url} noble/main amd64 Packages\n        100 /var/lib/dpkg/status\n`;
+  }
+  return withSection(withSourceVersion(env, 'openssh', version), 'apt_policy', policy);
+}
+
 /** A SnapshotReader serving one snapshot (or none) for every host. Store is defined in Task 6; only its type is used here. */
 export function readerFor(snapshot: HostSnapshot | undefined, file = '/fixtures/20261028T143146Z.json'): SnapshotReader {
   return { latest: async () => (snapshot ? { snapshot, file } : undefined) };

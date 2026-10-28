@@ -4,7 +4,7 @@ import { distroSources, findFixable, hostPackageCheck, hostPackageParams, skippe
 import { decodeSnapshot } from '../../../src/host/snapshot.js';
 import { fixtureAdvisories, staleAdvisories } from '../../helpers/advisories.js';
 import { hostSubject, makeCtx } from '../../helpers/ctx.js';
-import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection, withSourceVersion } from '../../helpers/snapshots.js';
+import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection, withSourceVersion, withVendorOpenssh } from '../../helpers/snapshots.js';
 import { tempDir } from '../../helpers/tmp.js';
 
 const P = (p: Record<string, unknown>) => hostPackageParams.parse(p);
@@ -159,6 +159,21 @@ describe('host_package advisories', () => {
     expect(out.observed).toContain('1 non-distro packages not checked (see host-package-third-party)');
   });
 
+  it('does not check or vouch for a package from an unidentified mirror; it says it was skipped', async () => {
+    const snap = decodeSnapshot(withVendorOpenssh(fixtureEnvelope('ubuntu-24-04'), 'https://packagecloud.io/acme/openssh/ubuntu'));
+    const out = await run(snap, { assert: 'advisories' });
+    expect(out.outcome).toBe('pass');
+    expect(out.observed).toContain('3 non-distro packages not checked (see host-package-third-party)');
+    expect(distroSources(snap, 'noble').some((s) => s.name === 'openssh')).toBe(false);
+    expect(skippedSourceCount(snap, 'noble')).toBe(3);
+  });
+
+  it('is unverifiable when every package is served from an unidentified mirror', async () => {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    const policy = sectionOf(env, 'apt_policy').replace(/^( {8}\d+ )http\S* \S+/gm, '$1https://packagecloud.io/acme/all/ubuntu noble/main');
+    await expect(run(decodeSnapshot(withSection(env, 'apt_policy', policy)), { assert: 'advisories' })).rejects.toMatchObject({ code: 'NO_DISTRO_PACKAGES' });
+  });
+
   it('tells the reader when CISA KEV was unavailable', async () => {
     const { ctx } = await makeCtx({}, {}, { snapshots: readerFor(fixtureSnapshot('ubuntu-24-04')), advisories: fixtureAdvisories(await tempDir()) });
     ctx.advisories.kev = {
@@ -191,6 +206,22 @@ describe('host_package third_party and reboot', () => {
     const policy = sectionOf(env, 'apt_policy').replace(/^ {8}\d+ http\S*.*$/gm, '');
     const snap = decodeSnapshot(withSection(env, 'apt_policy', policy));
     await expect(run(snap, { assert: 'third_party' })).rejects.toMatchObject({ code: 'APT_LISTS_EMPTY' });
+  });
+
+  it('lists a package served from an unidentified mirror as origin unknown and fails', async () => {
+    const snap = decodeSnapshot(withVendorOpenssh(env, 'https://packagecloud.io/acme/openssh/ubuntu'));
+    const out = await run(snap, { assert: 'third_party' });
+    expect(out.outcome).toBe('fail');
+    expect(out.observed).toContain('openssh-server 1:9.7p1-1~vendor1 (origin unknown: https://packagecloud.io/acme/openssh/ubuntu noble/main amd64 Packages)');
+    expect(out.observed).not.toMatch(/all \d+ packages come from/);
+  });
+
+  it('lists a package with no apt-cache entry as origin unknown', async () => {
+    const policy = sectionOf(env, 'apt_policy').replace(/^openssh-server:\n(?:(?: .*)?\n)*/m, '');
+    const out = await run(decodeSnapshot(withSection(env, 'apt_policy', policy)), { assert: 'third_party' });
+    expect(out.outcome).toBe('fail');
+    expect(out.observed).toContain('openssh-server');
+    expect(out.observed).toContain('origin unknown');
   });
 
   it('flags a pending reboot', async () => {

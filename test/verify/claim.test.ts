@@ -6,7 +6,7 @@ import { decodeSnapshot, type HostSnapshot } from '../../src/host/snapshot.js';
 import { validateProject } from '../../src/project/schema.js';
 import { verifyClaim } from '../../src/verify/claim.js';
 import { fixtureAdvisories, staleAdvisories } from '../helpers/advisories.js';
-import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection, withSourceVersion } from '../helpers/snapshots.js';
+import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection, withSourceVersion, withVendorOpenssh } from '../helpers/snapshots.js';
 import { tempDir } from '../helpers/tmp.js';
 
 const host = validateProject({ version: 1, name: 't', hosts: [{ name: 'web-1', address: '203.0.113.10', env: 'prod' }] }).hosts[0]!;
@@ -151,13 +151,8 @@ describe('verifyClaim on Debian and edge cases', () => {
 });
 
 /** Replaces every openssh-source binary's version and its apt origin (a vendor repository carrying the same codename). */
-function vendorOpenssh(version = '1:9.7p1-1~vendor1'): HostSnapshot {
-  const env = withSourceVersion(fixtureEnvelope('ubuntu-24-04'), 'openssh', version);
-  let policy = sectionOf(env, 'apt_policy');
-  for (const bin of ['openssh-client', 'openssh-server', 'openssh-sftp-server']) {
-    policy += `\n${bin}:\n  Installed: ${version}\n  Candidate: ${version}\n  Version table:\n *** ${version} 500\n        500 https://packages.vendor.example/apt noble/main amd64 Packages\n        100 /var/lib/dpkg/status\n`;
-  }
-  return decodeSnapshot(withSection(env, 'apt_policy', policy));
+function vendorOpenssh(version = '1:9.7p1-1~vendor1', url = 'https://packages.vendor.example/apt'): HostSnapshot {
+  return decodeSnapshot(withVendorOpenssh(fixtureEnvelope('ubuntu-24-04'), url, version));
 }
 
 describe('verifyClaim v2 fail-closed', () => {
@@ -172,6 +167,22 @@ describe('verifyClaim v2 fail-closed', () => {
     expect(r.verdict).toBe('unverifiable');
     expect(r.packages[0]).toMatchObject({ verdict: 'unverifiable' });
     expect(r.packages[0]?.note).toContain('packages.vendor.example');
+  });
+
+  it.each([
+    'https://packagecloud.io/acme/openssh/ubuntu',
+    'https://dl.cloudsmith.io/public/acme/openssh/deb/ubuntu',
+    'https://dlm.mariadb.com/repo/mariadb-server/11.4/repo/ubuntu',
+    'https://repo.zabbix.com/zabbix/7.0/ubuntu',
+    'https://ppa1.rabbitmq.com/rabbitmq/rabbitmq-erlang/deb/ubuntu',
+    'https://evil.example/ubuntu',
+  ])('a vendor build served from %s (path ends /ubuntu) is origin unknown, so unverifiable', async (url) => {
+    for (const cve of ['CVE-2024-6387', 'CVE-2021-41617']) {
+      const r = await verify(vendorOpenssh('1:9.7p1-1~vendor1', url), cve);
+      expect(r.verdict).toBe('unverifiable');
+      expect(r.packages[0]?.note).toContain('origin is unknown');
+      expect(r.packages[0]?.note).toContain(new URL(url).hostname);
+    }
   });
 
   it('vendor-origin openssh below the fixed version stays vulnerable', async () => {

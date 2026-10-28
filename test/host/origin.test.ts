@@ -23,18 +23,59 @@ describe('classifyOrigin', () => {
   });
 
   it.each([
+    [['http://archive.ubuntu.com/ubuntu noble/main amd64 Packages'], 'noble', 'distro'],
     [['http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages'], 'noble', 'distro'],
-    [['http://mirrors.example.net/ubuntu noble-updates/universe amd64 Packages'], 'noble', 'distro'],
+    [['http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages'], 'noble', 'distro'],
     [['http://ports.ubuntu.com/ubuntu-ports noble-security/main arm64 Packages'], 'noble', 'distro'],
+    [['https://esm.ubuntu.com/apps/ubuntu noble-apps-security/main amd64 Packages'], 'noble', 'distro'],
+    [['http://deb.debian.org/debian bookworm/main amd64 Packages'], 'bookworm', 'distro'],
     [['http://deb.debian.org/debian-security bookworm-security/main amd64 Packages'], 'bookworm', 'distro'],
+    [['http://security.debian.org/debian-security bookworm-security/main amd64 Packages'], 'bookworm', 'distro'],
     [['http://nginx.org/packages/ubuntu noble/nginx amd64 Packages', '/var/lib/dpkg/status'], 'noble', 'third_party'],
     [['https://download.docker.com/linux/ubuntu noble/stable amd64 Packages'], 'noble', 'third_party'],
     [['https://ppa.launchpadcontent.net/foo/bar/ubuntu noble/main amd64 Packages'], 'noble', 'third_party'],
-    [['https://packages.sury.org/php bookworm/main amd64 Packages'], 'bookworm', 'third_party'],
-    [['https://packages.microsoft.com/ubuntu/22.04/prod jammy/main amd64 Packages'], 'jammy', 'third_party'],
     [['/var/lib/dpkg/status'], 'noble', 'local'],
   ])('%j (%s) → %s', (sources, codename, kind) => {
     expect(classifyOrigin(o(...sources), codename).kind).toBe(kind);
+  });
+
+  // A distro-looking suite and component on a host that is not ubuntu.com/debian.org cannot be told from a vendor repo
+  // that reuses the codename and `main`; a trailing /ubuntu or /debian in the path proves nothing.
+  it.each([
+    'https://packagecloud.io/acme/openssh/ubuntu noble/main amd64 Packages',
+    'https://dl.cloudsmith.io/public/acme/openssh/deb/ubuntu noble/main amd64 Packages',
+    'https://dlm.mariadb.com/repo/mariadb-server/11.4/repo/ubuntu noble/main amd64 Packages',
+    'https://repo.zabbix.com/zabbix/7.0/ubuntu noble/main amd64 Packages',
+    'https://ppa1.rabbitmq.com/rabbitmq/rabbitmq-erlang/deb/ubuntu noble/main amd64 Packages',
+    'https://evil.example/ubuntu noble/main amd64 Packages',
+    'http://mirrors.example.net/ubuntu noble-updates/universe amd64 Packages',
+    'http://mirror.example.net/debian-security noble-security/main amd64 Packages',
+    'https://packages.sury.org/php noble/main amd64 Packages',
+    'https://packages.microsoft.com/ubuntu/22.04/prod noble/main amd64 Packages',
+    'http://archive.ubuntu.com.evil.example/ubuntu noble/main amd64 Packages',
+    'http://evil-ubuntu.com/ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com@evil.example/ubuntu noble/main amd64 Packages',
+  ])('%s is origin unknown, keeping the repository', (source) => {
+    expect(classifyOrigin(o(source), 'noble')).toEqual({ kind: 'unknown', repo: source });
+  });
+
+  it('a repository on a distro host with a non-distro suite is third-party, not distro', () => {
+    expect(classifyOrigin(o('http://archive.ubuntu.com/ubuntu stable/main amd64 Packages'), 'noble').kind).toBe('third_party');
+    expect(classifyOrigin(o('http://archive.ubuntu.com/ubuntu noble/partner amd64 Packages'), 'noble').kind).toBe('third_party');
+  });
+
+  it('a distro repository wins over an unknown one, and unknown wins over third-party', () => {
+    const distro = 'http://archive.ubuntu.com/ubuntu noble/main amd64 Packages';
+    const unknown = 'https://packagecloud.io/acme/openssh/ubuntu noble/main amd64 Packages';
+    const vendor = 'http://nginx.org/packages/ubuntu noble/nginx amd64 Packages';
+    expect(classifyOrigin(o(unknown, distro), 'noble').kind).toBe('distro');
+    expect(classifyOrigin(o(vendor, unknown), 'noble')).toEqual({ kind: 'unknown', repo: unknown });
+  });
+
+  it('an outdated package whose newer version is offered only by an unidentified mirror is unknown, not local', () => {
+    const mirror = 'https://packagecloud.io/acme/openssh/ubuntu noble/main amd64 Packages';
+    const outdated = { installed: '1.0-1', sources: ['/var/lib/dpkg/status'], available: [{ version: '1.0-2', sources: [mirror] }] };
+    expect(classifyOrigin(outdated, 'noble')).toEqual({ kind: 'unknown', repo: mirror });
   });
 
   it('is unknown without apt-cache data', () => {

@@ -7,45 +7,61 @@ const DISTRO_COMPONENTS = new Set(['main', 'restricted', 'universe', 'multiverse
 const LOCAL_STATUS = '/var/lib/dpkg/status';
 
 const DISTRO_HOST = /(^|\.)(ubuntu\.com|debian\.org)$/;
-const DISTRO_PATH = /\/(ubuntu|ubuntu-ports|debian|debian-security)$/;
+
+type RepoKind = 'distro' | 'unknown' | 'third_party';
 
 /**
- * A source line from a distro suite (codename or codename-updates/-security/...) and component, on a distro host
- * (ubuntu.com, debian.org or a subdomain) or at a distro mirror path (/ubuntu, /ubuntu-ports, /debian, /debian-security).
- * Vendor repos that reuse the codename and `main` (packages.sury.org, packages.microsoft.com) and PPAs are not distro.
+ * Classifies one apt source line ("<url> <suite>/<component> <arch> Packages").
+ *
+ * - `distro`: the host is ubuntu.com, debian.org or a subdomain, the suite is the host codename (or `codename-updates`,
+ *   `-security`, ...) and the component is a distro component. The host is the only identity secagent can trust.
+ * - `unknown`: the suite and component look like a distro's but the host is not a distro host. That is a third-party mirror
+ *   or a vendor repo that reuses the codename and `main` (packagecloud, cloudsmith, mariadb, packages.sury.org, ...);
+ *   a path ending in `/ubuntu` or `/debian` proves nothing, so no path is accepted. Treated as unverifiable until a
+ *   trusted-mirror allowlist exists.
+ * - `third_party`: anything else (a different suite or component such as nginx.org `noble/nginx`, docker `noble/stable`,
+ *   and PPAs on launchpad).
  */
-function isDistroRepo(source: string, codename: string): boolean {
+function repoKind(source: string, codename: string): RepoKind {
   const [url = '', suiteComponent = ''] = source.split(/\s+/);
   const [suite = '', component = ''] = suiteComponent.split('/');
   let host: string;
-  let pathname: string;
   try {
-    ({ hostname: host, pathname } = new URL(url));
+    host = new URL(url).hostname;
   } catch {
-    return false;
+    return 'unknown';
   }
-  const distroSuite = codename !== '' && (suite === codename || suite.startsWith(`${codename}-`));
-  const distroLocation = DISTRO_HOST.test(host) || DISTRO_PATH.test(pathname.replace(/\/$/, ''));
-  return distroSuite && DISTRO_COMPONENTS.has(component) && distroLocation && !host.includes('launchpad');
+  const distroLooking = codename !== '' && (suite === codename || suite.startsWith(`${codename}-`)) && DISTRO_COMPONENTS.has(component);
+  if (!distroLooking || host.includes('launchpad')) return 'third_party';
+  return DISTRO_HOST.test(host) ? 'distro' : 'unknown';
 }
 
 /**
- * Where the installed version came from. It is distro when a distro repo carries it, or when it is known only to
+ * Where the installed version came from. It is distro when a distro-host repo carries it, or when it is known only to
  * dpkg but a distro repo offers a newer version (an outdated distro package whose old version left the index).
- * It is third-party when a non-distro repo carries it (nginx.org, docker, PPAs). Otherwise it was installed locally.
+ * It is unknown when the only carriers are repos that look like a distro mirror but are not on a distro host, or there is
+ * no apt-cache data at all. It is third-party when a clearly different repo carries it (nginx.org, docker, PPAs).
+ * Otherwise it was installed locally. `unknown` and `third_party` both mean "do not trust distro advisories for this".
  */
 export function classifyOrigin(origin: PackageOrigin | undefined, codename: string): { kind: OriginKind; repo?: string } {
   if (!origin) return { kind: 'unknown' };
   const repos = origin.sources.filter((s) => s !== LOCAL_STATUS);
   if (repos.length > 0) {
-    const distro = repos.find((s) => isDistroRepo(s, codename));
-    return distro ? { kind: 'distro', repo: distro } : { kind: 'third_party', repo: repos[0] };
+    const kinds = repos.map((s) => [s, repoKind(s, codename)] as const);
+    const distro = kinds.find(([, k]) => k === 'distro');
+    if (distro) return { kind: 'distro', repo: distro[0] };
+    const unknown = kinds.find(([, k]) => k === 'unknown');
+    return unknown ? { kind: 'unknown', repo: unknown[0] } : { kind: 'third_party', repo: repos[0] };
   }
+  let unknownOffer: string | undefined;
   for (const offered of origin.available) {
-    const distro = offered.sources.find((s) => isDistroRepo(s, codename));
-    if (distro && compareDebVersions(offered.version, origin.installed) > 0) return { kind: 'distro', repo: distro };
+    if (compareDebVersions(offered.version, origin.installed) <= 0) continue;
+    const kinds = offered.sources.map((s) => [s, repoKind(s, codename)] as const);
+    const distro = kinds.find(([, k]) => k === 'distro');
+    if (distro) return { kind: 'distro', repo: distro[0] };
+    unknownOffer ??= kinds.find(([, k]) => k === 'unknown')?.[0];
   }
-  return { kind: 'local' };
+  return unknownOffer !== undefined ? { kind: 'unknown', repo: unknownOffer } : { kind: 'local' };
 }
 
 /** True when no package lists any repository source for any version: apt lists were cleaned or never fetched, so origins can't be known. */

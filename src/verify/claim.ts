@@ -90,15 +90,18 @@ function notInstalledReason(names: string): string {
 }
 
 /**
- * Why the installed copy of a source package can't be trusted to be covered by distro advisories: any of its binaries
- * comes from a third-party repository, was installed locally, or its origin is unknown (apt lists empty).
+ * Why the installed copy of a source package can't be trusted to be covered by distro advisories: unless every one of its
+ * binaries is positively identified as coming from a distro repository (kind `distro`), it is a concern. That includes
+ * third-party repositories, local installs, repos that only look like a mirror, and packages apt-cache says nothing about.
  */
 function originConcern(snap: HostSnapshot, source: string, codename: string): string | undefined {
   if (aptListsEmpty(snap.origins)) return 'apt package lists are empty, so the package origin is unknown';
   for (const bin of snap.packages.filter((p) => p.source === source)) {
     const o = classifyOrigin(snap.origins[bin.name], codename);
+    if (o.kind === 'distro') continue;
     if (o.kind === 'third_party') return `${bin.name} comes from third-party repository ${o.repo ?? 'unknown'}`;
     if (o.kind === 'local') return `${bin.name} was installed locally, not from a distro repository`;
+    return `${bin.name} origin is unknown (${o.repo ? `served by ${o.repo}, not an Ubuntu or Debian host` : 'apt-cache lists no repository for it'})`;
   }
   return undefined;
 }

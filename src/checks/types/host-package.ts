@@ -29,27 +29,26 @@ export interface FixablePackage {
 /**
  * Source packages to check against distro advisories, one per source at its lowest installed version
  * (the conservative choice: a lagging binary must not hide a pending fix).
- * Third-party and locally installed packages are skipped, unless apt lists are empty and origins can't be known.
+ * Anything not positively identified as distro (third-party, local, origin unknown) is skipped, unless apt lists are empty
+ * and origins can't be known at all.
  */
 export function distroSources(snap: HostSnapshot, codename: string): PackageQuery[] {
   const listsEmpty = aptListsEmpty(snap.origins);
   const best = new Map<string, string>();
   for (const pkg of snap.packages) {
-    const kind = classifyOrigin(snap.origins[pkg.name], codename).kind;
-    if (!listsEmpty && (kind === 'third_party' || kind === 'local')) continue;
+    if (!listsEmpty && classifyOrigin(snap.origins[pkg.name], codename).kind !== 'distro') continue;
     const current = best.get(pkg.source);
     if (current === undefined || compareDebVersions(pkg.source_version, current) < 0) best.set(pkg.source, pkg.source_version);
   }
   return [...best].map(([name, version]) => ({ name, version }));
 }
 
-/** How many distinct packages `distroSources` leaves out because a third-party repo or a local install provides them. */
+/** How many distinct packages `distroSources` leaves out because they are not positively identified as distro (third-party, local, origin unknown). */
 export function skippedSourceCount(snap: HostSnapshot, codename: string): number {
   if (aptListsEmpty(snap.origins)) return 0;
   const skipped = new Set<string>();
   for (const pkg of snap.packages) {
-    const kind = classifyOrigin(snap.origins[pkg.name], codename).kind;
-    if (kind === 'third_party' || kind === 'local') skipped.add(pkg.name);
+    if (classifyOrigin(snap.origins[pkg.name], codename).kind !== 'distro') skipped.add(pkg.name);
   }
   return skipped.size;
 }
@@ -128,8 +127,14 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
         if (seen.has(pkg.name)) continue;
         seen.add(pkg.name);
         const o = classifyOrigin(snapshot.origins[pkg.name], snapshot.os.codename);
-        if (o.kind === 'third_party') items.push({ package: pkg.name, version: pkg.version, origin: o.repo ?? 'unknown repository' });
-        if (o.kind === 'local') items.push({ package: pkg.name, version: pkg.version, origin: 'installed locally, not from any configured repository' });
+        if (o.kind === 'distro') continue;
+        const origin =
+          o.kind === 'third_party'
+            ? (o.repo ?? 'unknown repository')
+            : o.kind === 'local'
+              ? 'installed locally, not from any configured repository'
+              : `origin unknown${o.repo ? `: ${o.repo}` : ': no apt-cache entry'}`;
+        items.push({ package: pkg.name, version: pkg.version, origin });
       }
       const evidence_id = await ctx.evidence.put('snapshot', name, `package origins (${items.length} non-distro)`, { ...base, excerpt: items });
       if (items.length === 0) return { outcome: 'pass', observed: `all ${seen.size} packages come from ${osName} repositories`, evidence_id };
@@ -137,7 +142,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
       const more = items.length > p.max_listed ? `, and ${items.length - p.max_listed} more` : '';
       return {
         outcome: 'fail',
-        observed: `${items.length} package(s) are not from ${osName} repositories, so distro security updates and unattended-upgrades do not cover them: ${listed.join('; ')}${more}`,
+        observed: `${items.length} package(s) are not verifiably from ${osName} repositories, so distro security updates and unattended-upgrades may not cover them: ${listed.join('; ')}${more}`,
         evidence_id,
         details: { third_party: items },
       };
