@@ -6,18 +6,27 @@ export type OriginKind = 'distro' | 'third_party' | 'local' | 'unknown';
 const DISTRO_COMPONENTS = new Set(['main', 'restricted', 'universe', 'multiverse', 'contrib', 'non-free', 'non-free-firmware']);
 const LOCAL_STATUS = '/var/lib/dpkg/status';
 
-/** A source line from a distro suite (codename or codename-updates/-security/...) and component, on any mirror; PPAs excluded. */
+const DISTRO_HOST = /(^|\.)(ubuntu\.com|debian\.org)$/;
+const DISTRO_PATH = /\/(ubuntu|ubuntu-ports|debian|debian-security)$/;
+
+/**
+ * A source line from a distro suite (codename or codename-updates/-security/...) and component, on a distro host
+ * (ubuntu.com, debian.org or a subdomain) or at a distro mirror path (/ubuntu, /ubuntu-ports, /debian, /debian-security).
+ * Vendor repos that reuse the codename and `main` (packages.sury.org, packages.microsoft.com) and PPAs are not distro.
+ */
 function isDistroRepo(source: string, codename: string): boolean {
   const [url = '', suiteComponent = ''] = source.split(/\s+/);
   const [suite = '', component = ''] = suiteComponent.split('/');
   let host: string;
+  let pathname: string;
   try {
-    host = new URL(url).hostname;
+    ({ hostname: host, pathname } = new URL(url));
   } catch {
     return false;
   }
   const distroSuite = codename !== '' && (suite === codename || suite.startsWith(`${codename}-`));
-  return distroSuite && DISTRO_COMPONENTS.has(component) && !host.includes('launchpad');
+  const distroLocation = DISTRO_HOST.test(host) || DISTRO_PATH.test(pathname.replace(/\/$/, ''));
+  return distroSuite && DISTRO_COMPONENTS.has(component) && distroLocation && !host.includes('launchpad');
 }
 
 /**

@@ -23,15 +23,18 @@ describe('classifyOrigin', () => {
   });
 
   it.each([
-    [['http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages'], 'distro'],
-    [['http://mirrors.example.net/ubuntu noble-updates/universe amd64 Packages'], 'distro'],
-    [['http://deb.debian.org/debian-security bookworm-security/main amd64 Packages'], 'distro'],
-    [['http://nginx.org/packages/ubuntu noble/nginx amd64 Packages', '/var/lib/dpkg/status'], 'third_party'],
-    [['https://download.docker.com/linux/ubuntu noble/stable amd64 Packages'], 'third_party'],
-    [['https://ppa.launchpadcontent.net/foo/bar/ubuntu noble/main amd64 Packages'], 'third_party'],
-    [['/var/lib/dpkg/status'], 'local'],
-  ])('%j → %s', (sources, kind) => {
-    expect(classifyOrigin(o(...sources), 'noble').kind === kind || classifyOrigin(o(...sources), 'bookworm').kind === kind).toBe(true);
+    [['http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages'], 'noble', 'distro'],
+    [['http://mirrors.example.net/ubuntu noble-updates/universe amd64 Packages'], 'noble', 'distro'],
+    [['http://ports.ubuntu.com/ubuntu-ports noble-security/main arm64 Packages'], 'noble', 'distro'],
+    [['http://deb.debian.org/debian-security bookworm-security/main amd64 Packages'], 'bookworm', 'distro'],
+    [['http://nginx.org/packages/ubuntu noble/nginx amd64 Packages', '/var/lib/dpkg/status'], 'noble', 'third_party'],
+    [['https://download.docker.com/linux/ubuntu noble/stable amd64 Packages'], 'noble', 'third_party'],
+    [['https://ppa.launchpadcontent.net/foo/bar/ubuntu noble/main amd64 Packages'], 'noble', 'third_party'],
+    [['https://packages.sury.org/php bookworm/main amd64 Packages'], 'bookworm', 'third_party'],
+    [['https://packages.microsoft.com/ubuntu/22.04/prod jammy/main amd64 Packages'], 'jammy', 'third_party'],
+    [['/var/lib/dpkg/status'], 'noble', 'local'],
+  ])('%j (%s) → %s', (sources, codename, kind) => {
+    expect(classifyOrigin(o(...sources), codename).kind).toBe(kind);
   });
 
   it('is unknown without apt-cache data', () => {
