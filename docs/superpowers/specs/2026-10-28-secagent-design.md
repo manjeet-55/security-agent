@@ -55,7 +55,7 @@ None of this depends on the application's tech stack. Fiftyfive runs Angular, Vu
 | Decision | Choice | Why |
 |---|---|---|
 | Form factor | MCP server plus portable agent playbook (approach A); a thin API-key runner is a stretch (approach C) | No LLM adapter code. Works in any MCP client. Tools are testable without an LLM. |
-| Language | TypeScript, Node 20+ | The company's stack is Node-heavy. Official MCP SDK. Node's `tls`/`net`/`dns` built-ins mean no nmap or testssl dependency. |
+| Language | TypeScript, Node 22.12+ (vitest 5's floor; Node 20 is end-of-life) | The company's stack is Node-heavy. Official MCP SDK. Node's `tls`/`net`/`dns` built-ins mean no nmap or testssl dependency. |
 | Who finds vs who reasons | Deterministic tools produce facts and evidence; the LLM triages, explains, fixes and learns | The LLM never invents CVEs or findings |
 | Server access | Generated read-only collector script that the developer runs; output dropped into `.secagent/hosts/` | Works under every access setup (SSH, SSM, console). A human sees what runs. |
 | Knowledge base storage | Plain files (Markdown + YAML frontmatter, YAML, JSON), with no vector DB | Hundreds of docs, not millions. Diffable, reviewable in git, readable by any model. |
@@ -154,7 +154,7 @@ developer: "/secscan" (Claude) or "scan security" (any MCP client)
 
 ### 4.5 Rules enforced in code, not only in prompts
 
-1. **Target allowlist.** Every probe and collector tool rejects targets or hosts that aren't in `project.yaml`. Private and link-local ranges are rejected unless listed explicitly.
+1. **Target allowlist.** Every probe and collector tool rejects targets or hosts that aren't in `project.yaml`. Private and link-local ranges are rejected unless listed explicitly. Listing a private IP literal counts as explicit. A hostname that resolves to a private address needs `allow_private: true` on its entry.
 2. **Evidence required.** A finding without at least one valid `evidence_id` fails schema validation.
 3. **Provenance required.** A knowledge-base write without an allowlisted `source_url` and a verified `quote` is rejected (see §8.4).
 4. **Unreviewed knowledge can't lower risk.** A finding's status can move to `false_positive`/`not_applicable`, or its severity go down, only by citing one of: `review: approved` knowledge, an explicit `exceptions.yaml` entry, or `verify_claim` evidence (§7.1), which is deterministic and built from tier-1 advisory data.
@@ -267,7 +267,7 @@ Each check **type** is a TypeScript module with typed `params` (zod). Each check
 | `header_budget` | Total response header bytes on observable responses: ≥ 3072 is medium, ≥ 4096 is high. Notes that authenticated/session responses are larger than what an unauthenticated probe sees. | first version |
 | `exposed_path` | GET a fixed list (`/.env`, `/.git/config`, `/.git/HEAD`, `/.DS_Store`, `*.js.map` from the page's scripts). **SPA-safe:** first request a random path for a baseline. A path counts as exposed only if the response is 200, differs from the baseline, and matches a content signature (e.g. `KEY=value` lines for `.env`, `[core]` for git config). | first version |
 | `tls` | Rejects TLS 1.0/1.1 (probe with `minVersion/maxVersion` and `ciphers: 'DEFAULT@SECLEVEL=0'`); negotiates TLS 1.2 with AEAD or TLS 1.3; certificate valid ≥ 21 days and matches the hostname | first version |
-| `port_exposure` | TCP connect only, fixed list: 21, 22, 23, 2375, 3306, 5432, 6379, 9200, 11211, 27017 | first version |
+| `port_exposure` | TCP connect only, fixed list: 21, 22, 23, 2375, 3306, 5432, 6379, 9200, 11211, 27017. Runs against listed `hosts` only, never target hostnames, so CDN/shared infrastructure isn't port-probed. If nothing answers at all, including 80/443, the result is `unverifiable`. | first version |
 | `host_config` | From the collector: sshd `passwordauthentication no`, `permitrootlogin no\|prohibit-password`; nginx `server_tokens off`, `ssl_protocols` without TLSv1/TLSv1.1; listening sockets bound to `0.0.0.0` on database ports | first version |
 | `host_package` | Each installed package version checked against distro advisories using Debian version comparison; package origin outside the distro security pocket flagged; reboot pending flagged; CVE in CISA's exploited-vulnerabilities list escalates to critical | first version |
 | `http_cors` | Sends a forged `Origin`; fails if it's reflected, or if `*` is sent with credentials | stretch |
@@ -504,7 +504,7 @@ Output: Markdown in `.secagent/reports/`, plus a self-contained HTML file.
 
 | Command | Behaviour |
 |---|---|
-| `secagent init` | Stack detection, interactive `project.yaml`, `.gitignore`, MCP config, `AGENTS.md` pointer |
+| `secagent init` | Stack detection; `project.yaml` from flags (`--target id=url,type,env`, `--host name=address,env`, `--scan-label`), because the agent's `init` phase does the interviewing; `.gitignore`; MCP config; `AGENTS.md` pointer |
 | `secagent scan --no-ai` | `run_checks` for every target plus `analyze_host` for every fresh snapshot. Maps fail→`open`, unverifiable→`unverifiable`. Writes findings and a report. No LLM. |
 | `secagent mcp` | Starts the MCP server over stdio |
 | `secagent learn` | Deterministic feed refresh only (the research channel needs an agent) |
@@ -539,7 +539,8 @@ Output: Markdown in `.secagent/reports/`, plus a self-contained HTML file.
 1. **Unit (vitest):**
    - each check type against recorded responses;
    - Debian version comparison (epochs, `~` ordering, `9.6p1-3ubuntu13.20` vs `9.6p1-3ubuntu13.3`);
-   - collector parser on anonymised real outputs;
+   - collector parser on recorded Ubuntu 22.04/24.04 outputs (anonymised);
+   - `verify_claim` on fixture snapshots and advisory data covering every verdict;
    - `kb_write` quote verification and allowlist;
    - the `findings_write` trust rule;
    - the SPA baseline logic in `exposed_path`.
@@ -549,13 +550,16 @@ Output: Markdown in `.secagent/reports/`, plus a self-contained HTML file.
    - an SPA fallback route on both, to prove `exposed_path` doesn't false-positive.
 3. **Agent eval:** `lab/expected.yaml` maps finding IDs to expected statuses. `secagent eval` reports status accuracy, false `open` (noise) and missed `open` (dangerous). Run with at least one Claude model and one OpenAI model (via Codex CLI) to show model portability.
 
-## 15. Demo (about 7 minutes)
+## 15. Acceptance run
 
-1. `secagent scan --no-ai` on the lab: raw check results with no triage, no fix context, and nothing done with the external scanner report.
-2. `/secscan` in Claude Code: a triaged report. The agent reads an anonymised external scanner report from `external/`, verifies each claim against the anonymised host snapshot, and produces "29 OpenSSH CVEs reported → 26 fixed in installed version, 2 not applicable, 1 no fix available (mitigated)", each with evidence.
-3. The same scan in Codex CLI with an OpenAI model: matching verdicts.
-4. `/seclearn`: fetch a real advisory → pending entry → `kb review` diff → approve. Then a planted fake page is rejected by quote verification and the trust rule.
-5. The agent proposes an nginx header fix with a header-budget warning → apply → rescan → `fixed`.
+secagent is project-independent. The final validation runs on a separate real project supplied by DevOps. That project isn't known at design time, so no results are pre-scripted. Every flow is first exercised against the lab (§14). Then, on the supplied project:
+
+1. `secagent init`: stack detected, targets and hosts entered, MCP registered.
+2. `secagent scan --no-ai`: raw check results, no triage.
+3. `/secscan` in Claude Code: triaged findings and report. If the project has a third-party scanner report, it goes through `verify_claim` (§7.1).
+4. The same scan in Codex CLI with an OpenAI model: compare statuses.
+5. `/seclearn`: feed refresh plus at least one researched entry → `kb review` → approve.
+6. Fix-and-verify on one finding: propose with side effects → developer applies → rescan → `fixed`.
 
 ## 16. Delivery plan
 
@@ -563,10 +567,10 @@ Output: Markdown in `.secagent/reports/`, plus a self-contained HTML file.
 |---|---|
 | 1 | Scaffold (TS, MCP SDK, zod, yaml, vitest); `project.yaml` + `init` + stack detection; check engine with `http_redirect`, `http_header`, `http_cookie`, `header_budget`, `exposed_path`, `tls`, `port_exposure`; evidence store; findings schema and IDs; `scan --no-ai`; docker lab |
 | 2 | Verify OSV distro coverage first. Then `collector.sh` + parser; `host_config`; `host_package` (dpkg comparison, OSV querybatch, KEV); `verify_claim`; advisory cache; knowledge base (seed lessons, INDEX, search/read/write, quote verification, trust rule); MCP server with all tools; `AGENTS.md`; `report_render` |
-| 3 | `fetch_source` + `sources.yaml`; `kb review`; Claude plugin (skills, `sec-researcher`); Codex CLI test; `eval`; README; demo script |
+| 3 | `fetch_source` + `sources.yaml`; `kb review`; Claude plugin (skills, `sec-researcher`); Codex CLI test; `eval`; README; acceptance-run checklist |
 | Stretch | API-key runner (approach C), `http_cors`, `lb_bypass`, `dns_dangling`, PreToolUse hook, SSH collector mode |
 
-If behind schedule, cut in this order: NVD → the HTML report → `kb review` CLI (the agent reviews in chat instead) → the Codex demo.
+If behind schedule, cut in this order: NVD → the HTML report → `kb review` CLI (the agent reviews in chat instead) → the Codex CLI cross-model run.
 
 Exact dependency versions are pinned when the project is scaffolded.
 
