@@ -1223,7 +1223,7 @@ git commit -m "feat(scope): enforce project.yaml allowlist and private-address g
   - `interface HttpObservation { url; status; headers: Record<string,string>; setCookies: CookieObservation[]; location?; headerBytes; bodySnippet; bodyBytes; remoteAddress? }`
   - `interface HttpOptions { family: 4|6; timeoutMs?; connectTimeoutMs?; method?: 'GET'|'HEAD'; headers?; maxBodyBytes? }`
   - `USER_AGENT`, `parseSetCookie(raw)`, `countHeaderBytes(statusLine, rawHeaders)`, `httpRequest(url, opts): Promise<HttpObservation>`
-  - test helpers `startHttp(handler)`, `startHttps(handler, tlsOpts?)`, `startTls(tlsOpts?)` → `Running { port; url; close() }`, plus `TEST_KEY`, `TEST_CERT`
+  - test helpers `startHttp(handler)`, `startHttps(handler, tlsOpts?)`, `startTls(tlsOpts?)` → `Running { port; url; close() }`, `useServers()` → `track(p: Promise<Running>): Promise<Running>` (closes tracked servers in `afterEach`), plus `TEST_KEY`, `TEST_CERT`
 
 - [ ] **Step 1: Generate the test certificate (valid ten years; SAN localhost + 127.0.0.1)**
 
@@ -1246,6 +1246,7 @@ import https from 'node:https';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import tls from 'node:tls';
+import { afterEach } from 'vitest';
 
 const FIXTURES = path.join(import.meta.dirname, '..', 'fixtures', 'tls');
 export const TEST_KEY = readFileSync(path.join(FIXTURES, 'key.pem'));
@@ -1290,24 +1291,29 @@ export function startTls(tlsOpts: tls.TlsOptions = {}): Promise<Running> {
   server.on('tlsClientError', () => {});
   return listen(server, 'tls');
 }
+
+/** Call at module or describe level: servers started through the returned track() are closed after each test. */
+export function useServers(): (pending: Promise<Running>) => Promise<Running> {
+  const running: Running[] = [];
+  afterEach(async () => {
+    await Promise.all(running.splice(0).map((s) => s.close()));
+  });
+  return async (pending) => {
+    const server = await pending;
+    running.push(server);
+    return server;
+  };
+}
 ```
 
 `test/net/http.test.ts`:
 ```ts
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { NetError } from '../../src/net/errors.js';
 import { countHeaderBytes, httpRequest, parseSetCookie } from '../../src/net/http.js';
-import { startHttp, startHttps, type Running } from '../helpers/servers.js';
+import { startHttp, startHttps, useServers } from '../helpers/servers.js';
 
-const running: Running[] = [];
-afterEach(async () => {
-  await Promise.all(running.splice(0).map((s) => s.close()));
-});
-async function track(p: Promise<Running>): Promise<Running> {
-  const s = await p;
-  running.push(s);
-  return s;
-}
+const track = useServers();
 
 describe('parseSetCookie', () => {
   it('keeps the name, lowercases attributes and redacts the value', () => {
@@ -1563,24 +1569,16 @@ Verified on Node 24 / OpenSSL 3.5 during planning:
 
 `test/net/tls.test.ts`:
 ```ts
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { NetError } from '../../src/net/errors.js';
 import { isHandshakeRejection, LEGACY_CIPHERS, NON_AEAD_TLS12_CIPHERS, tlsHandshake } from '../../src/net/tls.js';
-import { startTls, type Running } from '../helpers/servers.js';
+import { startTls, useServers } from '../helpers/servers.js';
 
 const STRICT_CIPHERS =
   'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
 const TLS10 = { minVersion: 'TLSv1', maxVersion: 'TLSv1', ciphers: LEGACY_CIPHERS } as const;
 
-const running: Running[] = [];
-afterEach(async () => {
-  await Promise.all(running.splice(0).map((s) => s.close()));
-});
-async function track(p: Promise<Running>): Promise<Running> {
-  const s = await p;
-  running.push(s);
-  return s;
-}
+const track = useServers();
 
 describe('tlsHandshake', () => {
   it('completes a TLS 1.0 handshake with a legacy server', async () => {
@@ -3735,7 +3733,7 @@ git commit -m "feat(checks): add SPA-safe exposed file and source map check"
 
 `test/checks/types/tls.test.ts`:
 ```ts
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { CheckContext } from '../../../src/checks/context.js';
 import { evaluateCert, evaluateLegacy, evaluateModern, tlsCheck, tlsParams } from '../../../src/checks/types/tls.js';
 import { EvidenceStore } from '../../../src/evidence/store.js';
@@ -3743,7 +3741,7 @@ import { ScopedNet } from '../../../src/net/scoped.js';
 import { LEGACY_CIPHERS, type TlsObservation } from '../../../src/net/tls.js';
 import { validateProject } from '../../../src/project/schema.js';
 import { Scope } from '../../../src/project/scope.js';
-import { startTls, type Running } from '../../helpers/servers.js';
+import { startTls, useServers } from '../../helpers/servers.js';
 import { tempDir } from '../../helpers/tmp.js';
 
 const STRICT_CIPHERS =
@@ -3810,14 +3808,10 @@ describe('evaluateCert', () => {
 });
 
 describe('tls check against real servers', () => {
-  const running: Running[] = [];
-  afterEach(async () => {
-    await Promise.all(running.splice(0).map((s) => s.close()));
-  });
+  const track = useServers();
 
   async function setup(serverOpts: Parameters<typeof startTls>[0]) {
-    const s = await startTls(serverOpts);
-    running.push(s);
+    const s = await track(startTls(serverOpts));
     const project = validateProject({ version: 1, name: 't', targets: [{ id: 'app', url: `https://127.0.0.1:${s.port}`, type: 'web', env: 'test' }] });
     const ctx: CheckContext = {
       project,
@@ -4774,7 +4768,7 @@ describe('CHECK_TYPES', () => {
 ```ts
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { loadCheckInstances } from '../../src/checks/catalog.js';
 import { CHECK_TYPES } from '../../src/checks/registry.js';
 import { NetError } from '../../src/net/errors.js';
@@ -4783,7 +4777,7 @@ import { GLOBAL_CHECKS_DIR } from '../../src/paths.js';
 import { initProject } from '../../src/project/init.js';
 import { scanNoAi } from '../../src/scan/no-ai.js';
 import { FIXED_NOW, fakeObs } from '../helpers/ctx.js';
-import { startHttps, type Running } from '../helpers/servers.js';
+import { startHttps, useServers } from '../helpers/servers.js';
 import { tempDir, writeFiles } from '../helpers/tmp.js';
 
 const HSTS_CHECK = `id: hdr-hsts
@@ -4801,19 +4795,17 @@ source_url: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Strict_Transport
 review: approved
 `;
 
-const running: Running[] = [];
-afterEach(async () => {
-  await Promise.all(running.splice(0).map((s) => s.close()));
-});
+const track = useServers();
 
 describe('scanNoAi', () => {
   it('opens a finding with evidence, then marks it fixed when the header appears', async () => {
     let sendHsts = false;
-    const s = await startHttps((_req, res) => {
-      if (sendHsts) res.setHeader('strict-transport-security', 'max-age=31536000');
-      res.end('ok');
-    });
-    running.push(s);
+    const s = await track(
+      startHttps((_req, res) => {
+        if (sendHsts) res.setHeader('strict-transport-security', 'max-age=31536000');
+        res.end('ok');
+      }),
+    );
     const dir = await tempDir();
     const checksDir = await tempDir();
     await writeFiles(checksDir, { 'hdr-hsts.yaml': HSTS_CHECK });
