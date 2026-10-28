@@ -10,5 +10,10 @@ export type { Advisories } from './types.js';
 export function createAdvisories(opts: { cacheDir?: string; fetchJson?: FetchJson; now?: () => Date } = {}): Advisories {
   const cache = new AdvisoryCache(opts.cacheDir, opts.now);
   const fetchJson = opts.fetchJson ?? createFetchJson();
-  return { osv: new OsvClient(fetchJson, cache), ubuntu: new UbuntuCveClient(fetchJson, cache), kev: new KevClient(fetchJson, cache) };
+  return {
+    osv: new OsvClient(fetchJson, cache),
+    ubuntu: new UbuntuCveClient(fetchJson, cache),
+    kev: new KevClient(fetchJson, cache, opts.now),
+    freshness: () => cache.freshness(),
+  };
 }

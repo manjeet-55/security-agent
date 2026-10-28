@@ -63,6 +63,29 @@ describe('KevClient', () => {
     expect((await kev.catalog()).has('CVE-2026-48356')).toBe(true);
     expect(fetchJson.calls).toHaveLength(1);
   });
+
+  it('refreshes the catalog after the cache entry expires and keeps reporting freshness', async () => {
+    let now = new Date('2026-10-28T00:00:00Z');
+    const fetchJson = fixtureFetch();
+    const cache = new AdvisoryCache(await tempDir(), () => now);
+    const kev = new KevClient(fetchJson, cache, () => now);
+    await kev.catalog();
+    cache.freshness();
+    now = new Date(now.getTime() + 3_600_000);
+    await kev.catalog();
+    expect(fetchJson.calls).toHaveLength(1);
+    expect(cache.freshness()).toEqual({ as_of: '2026-10-28T00:00:00.000Z', stale: false });
+    now = new Date(now.getTime() + 86_400_000);
+    await kev.catalog();
+    expect(fetchJson.calls).toHaveLength(2);
+  });
+
+  it('de-duplicates concurrent first loads', async () => {
+    const fetchJson = fixtureFetch();
+    const kev = new KevClient(fetchJson, new AdvisoryCache(await tempDir()));
+    await Promise.all([kev.catalog(), kev.catalog(), kev.catalog()]);
+    expect(fetchJson.calls).toHaveLength(1);
+  });
 });
 
 describe('missing advisory responses are unavailable, not clean', () => {

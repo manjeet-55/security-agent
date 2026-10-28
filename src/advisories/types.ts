@@ -49,8 +49,15 @@ export interface KevSource {
   catalog(): Promise<Set<string>>;
 }
 
+export interface Freshness {
+  as_of: string;
+  stale: boolean;
+}
+
 export interface Advisories {
   osv: OsvSource;
   ubuntu: UbuntuSource;
   kev: KevSource;
+  /** Oldest `as_of` and OR of `stale` over the advisory data served since the last call; resets on read. */
+  freshness?(): Freshness | undefined;
 }
