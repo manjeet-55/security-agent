@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateProject } from '../../src/project/schema.js';
+import { NetError } from '../../src/net/errors.js';
 import { Scope, ScopeError } from '../../src/project/scope.js';
 
 function scopeFor(targets: unknown[], hosts: unknown[] = []): Scope {
@@ -44,5 +45,32 @@ describe('Scope', () => {
     expect(scope.target('app').url).toBe('https://203.0.113.10');
     expect(() => scope.target('nope')).toThrow(/Targets in project.yaml: app/);
     expect(() => scope.host('nope')).toThrow(ScopeError);
+  });
+
+  it('does not cache transient DNS failures', async () => {
+    let calls = 0;
+    const resolve = async (): Promise<string[]> => {
+      calls += 1;
+      if (calls === 1) throw new NetError('DNS_FAILED', 'flaky');
+      return ['203.0.113.5'];
+    };
+    const project = validateProject({ version: 1, name: 't', targets: [{ id: 'app', url: 'https://app.example.com', type: 'web', env: 'prod' }], hosts: [] });
+    const scope = new Scope(project, resolve);
+    await expect(scope.assertHostnameAllowed('app.example.com')).rejects.toBeInstanceOf(NetError);
+    expect(await scope.assertHostnameAllowed('app.example.com')).toEqual(['203.0.113.5']);
+    expect(calls).toBe(2);
+  });
+
+  it('keeps private-address refusals cached', async () => {
+    let calls = 0;
+    const resolve = async (): Promise<string[]> => {
+      calls += 1;
+      return ['10.0.0.5'];
+    };
+    const project = validateProject({ version: 1, name: 't', targets: [{ id: 'int', url: 'https://internal.example.com', type: 'web', env: 'prod' }], hosts: [] });
+    const scope = new Scope(project, resolve);
+    await expect(scope.assertHostnameAllowed('internal.example.com')).rejects.toBeInstanceOf(ScopeError);
+    await expect(scope.assertHostnameAllowed('internal.example.com')).rejects.toBeInstanceOf(ScopeError);
+    expect(calls).toBe(1);
   });
 });

@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { NetError } from '../net/errors.js';
 import { isPrivateAddress, resolveAddresses, stripBrackets } from '../net/ip.js';
 import type { Host, ProjectConfig, Target } from './schema.js';
 
@@ -27,7 +28,10 @@ export class Scope {
   private readonly entries: ScopeEntry[];
   private readonly checked = new Map<string, Promise<string[]>>();
 
-  constructor(private readonly project: ProjectConfig) {
+  constructor(
+    private readonly project: ProjectConfig,
+    private readonly resolve: (hostname: string, family: 4 | 6) => Promise<string[]> = resolveAddresses,
+  ) {
     this.entries = [
       ...project.targets.map((t) => ({ hostname: normalise(new URL(t.url).hostname), allowPrivate: t.allow_private })),
       ...project.hosts.map((h) => ({ hostname: normalise(h.address), allowPrivate: h.allow_private })),
@@ -64,6 +68,10 @@ export class Scope {
     if (!pending) {
       pending = this.resolveChecked(h, matches.some((m) => m.allowPrivate));
       this.checked.set(h, pending);
+      // Transient DNS failures must not stick; ScopeError refusals are deterministic and stay cached.
+      pending.catch((e: unknown) => {
+        if (e instanceof NetError) this.checked.delete(h);
+      });
     }
     return pending;
   }
@@ -75,7 +83,7 @@ export class Scope {
   }
 
   private async resolveChecked(hostname: string, allowPrivate: boolean): Promise<string[]> {
-    const addresses = await resolveAddresses(hostname, this.project.network.ip_family);
+    const addresses = await this.resolve(hostname, this.project.network.ip_family);
     if (!allowPrivate && !isIP(hostname)) {
       const priv = addresses.filter(isPrivateAddress);
       if (priv.length > 0) {
