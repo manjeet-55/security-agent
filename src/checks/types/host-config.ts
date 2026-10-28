@@ -17,15 +17,17 @@ export const hostConfigParams = z.discriminatedUnion('rule', [
       .transform((k) => k.toLowerCase()),
     allowed: z.array(z.string()).min(1),
   }),
-  z.object({
-    rule: z.literal('nginx_directive'),
-    directive: z.string().regex(/^[a-z_]+$/),
-    equals: z.string().optional(),
-    forbid_tokens: z.array(z.string()).optional(),
-    /** nginx's built-in default when the directive is never set (e.g. server_tokens → "on"). */
-    absent_default: z.string().optional(),
-    when_absent: z.enum(['pass', 'fail', 'unverifiable']).default('unverifiable'),
-  }),
+  z
+    .object({
+      rule: z.literal('nginx_directive'),
+      directive: z.string().regex(/^[a-z_]+$/),
+      equals: z.string().optional(),
+      forbid_tokens: z.array(z.string()).optional(),
+      /** nginx's built-in default when the directive is never set (e.g. server_tokens → "on"). */
+      absent_default: z.string().optional(),
+      when_absent: z.enum(['pass', 'fail', 'unverifiable']).default('unverifiable'),
+    })
+    .refine((p) => p.equals !== undefined || p.forbid_tokens !== undefined, { message: 'nginx_directive needs "equals" or "forbid_tokens"' }),
   z.object({ rule: z.literal('listening'), forbid_public_ports: z.array(Port).min(1) }),
   z.object({ rule: z.literal('auto_upgrades') }),
 ]);
@@ -40,11 +42,28 @@ export interface HostConfigVerdict {
 
 const WILDCARD = new Set(['0.0.0.0', '::', '*']);
 
+/**
+ * A missing tool (rc 127) counts as "not installed" only when the collector ran as root and dpkg lists no package
+ * that would provide it; otherwise the tool may simply be off the collector's PATH or the package list unreadable.
+ */
+function assertProvablyAbsent(snap: HostSnapshot, tool: 'sshd' | 'nginx', reason: string, isProvider: (name: string) => boolean): void {
+  if (!snap.is_root) throw new ObservationError('NOT_ROOT', `"${tool}" could not be run (${reason}); run the collector as root.`);
+  if (snap.packages_error !== undefined || snap.packages.length === 0) {
+    throw new ObservationError('TOOL_MISSING', `"${tool}" was not found (${reason}) and the package list is unusable, so its absence is unproven.`);
+  }
+  const found = snap.packages.find((pkg) => isProvider(pkg.name));
+  if (found) throw new ObservationError('TOOL_MISSING', `"${tool}" was not found (${reason}) but package ${found.name} is installed; run the collector as root with a full PATH.`);
+}
+
 export function evaluateHostConfig(snap: HostSnapshot, p: HostConfigParams): HostConfigVerdict {
   switch (p.rule) {
     case 'sshd_value': {
-      if (snap.sshd.state === 'absent') return { outcome: 'pass', observed: 'sshd is not installed on this host', excerpt: snap.sshd };
+      if (snap.sshd.state === 'absent') {
+        assertProvablyAbsent(snap, 'sshd', snap.sshd.reason, (n) => n === 'openssh-server');
+        return { outcome: 'pass', observed: 'sshd is not installed on this host', excerpt: snap.sshd };
+      }
       if (snap.sshd.state === 'error') {
+        if (!snap.is_root) throw new ObservationError('NOT_ROOT', `"sshd -T" failed (${snap.sshd.reason}); run the collector as root.`);
         throw new ObservationError('SSHD_UNREADABLE', `"sshd -T" failed (${snap.sshd.reason}); run the collector as root.`);
       }
       const value = snap.sshd.value[p.key];
@@ -57,8 +76,12 @@ export function evaluateHostConfig(snap: HostSnapshot, p: HostConfigParams): Hos
       };
     }
     case 'nginx_directive': {
-      if (snap.nginx.state === 'absent') return { outcome: 'pass', observed: 'nginx is not installed on this host', excerpt: snap.nginx };
+      if (snap.nginx.state === 'absent') {
+        assertProvablyAbsent(snap, 'nginx', snap.nginx.reason, (n) => n.startsWith('nginx') || n === 'openresty');
+        return { outcome: 'pass', observed: 'nginx is not installed on this host', excerpt: snap.nginx };
+      }
       if (snap.nginx.state === 'error') {
+        if (!snap.is_root) throw new ObservationError('NOT_ROOT', `"nginx -T" failed (${snap.nginx.reason}); run the collector as root.`);
         throw new ObservationError('NGINX_UNREADABLE', `"nginx -T" failed (${snap.nginx.reason}); run the collector as root.`);
       }
       let values = nginxDirectiveValues(snap.nginx.value, p.directive);

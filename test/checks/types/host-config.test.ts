@@ -3,7 +3,7 @@ import { ObservationError } from '../../../src/checks/errors.js';
 import { evaluateHostConfig, hostConfigCheck, hostConfigParams } from '../../../src/checks/types/host-config.js';
 import { decodeSnapshot } from '../../../src/host/snapshot.js';
 import { hostSubject, makeCtx } from '../../helpers/ctx.js';
-import { fixtureEnvelope, fixtureSnapshot, readerFor, withSection } from '../../helpers/snapshots.js';
+import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection } from '../../helpers/snapshots.js';
 
 const P = (p: Record<string, unknown>) => hostConfigParams.parse(p);
 const noble = fixtureSnapshot('ubuntu-24-04');
@@ -40,7 +40,8 @@ describe('evaluateHostConfig edge cases', () => {
   const env = fixtureEnvelope('ubuntu-24-04');
 
   it('passes when sshd or nginx is not installed, and is unverifiable when unreadable', () => {
-    const noSshd = decodeSnapshot(withSection(env, 'sshd', 'sh: 1: /usr/sbin/sshd: not found', 127));
+    const noOpenssh = sectionOf(env, 'packages').split('\n').filter((l) => !l.split('\t')[1]?.startsWith('openssh-server')).join('\n');
+    const noSshd = decodeSnapshot(withSection(withSection(env, 'sshd', 'sh: 1: /usr/sbin/sshd: not found', 127), 'packages', noOpenssh));
     expect(evaluateHostConfig(noSshd, P({ rule: 'sshd_value', key: 'passwordauthentication', allowed: ['no'] })).observed).toBe(
       'sshd is not installed on this host',
     );
@@ -57,6 +58,42 @@ describe('evaluateHostConfig edge cases', () => {
     expect(() => evaluateHostConfig(noSs, P({ rule: 'listening', forbid_public_ports: [5432] }))).toThrow(ObservationError);
     const noUu = decodeSnapshot(withSection(env, 'auto_upgrades', '', 1));
     expect(evaluateHostConfig(noUu, P({ rule: 'auto_upgrades' })).observed).toBe('unattended-upgrades is not installed');
+  });
+});
+
+describe('evaluateHostConfig missing tools fail closed', () => {
+  const env = fixtureEnvelope('ubuntu-24-04');
+  const sshdRule = P({ rule: 'sshd_value', key: 'passwordauthentication', allowed: ['no'] });
+  const nginxRule = P({ rule: 'nginx_directive', directive: 'server_tokens', equals: 'off', absent_default: 'on' });
+
+  it('sshd rc 127 with openssh-server in dpkg is unverifiable', () => {
+    const snap = decodeSnapshot(withSection(env, 'sshd', 'sh: 1: /usr/sbin/sshd: not found', 127));
+    expect(() => evaluateHostConfig(snap, sshdRule)).toThrow(/openssh-server is installed/);
+  });
+
+  it('nginx rc 127 with nginx in dpkg is unverifiable; without it and as root it passes', () => {
+    const snap = decodeSnapshot(withSection(env, 'nginx', 'sh: 1: nginx: not found', 127));
+    expect(() => evaluateHostConfig(snap, nginxRule)).toThrow(ObservationError);
+    const none = sectionOf(env, 'packages').split('\n').filter((l) => !/^ii \t(lib)?nginx|openresty/.test(l)).join('\n');
+    const gone = decodeSnapshot(withSection(withSection(env, 'nginx', 'sh: 1: nginx: not found', 127), 'packages', none));
+    expect(evaluateHostConfig(gone, nginxRule).outcome).toBe('pass');
+  });
+
+  it('absent with an unusable package list is unverifiable', () => {
+    const snap = decodeSnapshot(withSection(withSection(env, 'nginx', 'sh: 1: nginx: not found', 127), 'packages', 'sh: dpkg-query: not found', 127));
+    expect(() => evaluateHostConfig(snap, nginxRule)).toThrow(/absence is unproven/);
+  });
+
+  it('any sshd/nginx error or absent when not root says to run the collector as root', () => {
+    const user = withSection(env, 'uid', '1000\n');
+    const a = decodeSnapshot(withSection(user, 'sshd', 'sh: sshd: not found', 127));
+    expect(() => evaluateHostConfig(a, sshdRule)).toThrow(/run the collector as root/);
+    const b = decodeSnapshot(withSection(user, 'nginx', 'nginx: permission denied', 1));
+    expect(() => evaluateHostConfig(b, nginxRule)).toThrow(/run the collector as root/);
+  });
+
+  it('nginx_directive params need equals or forbid_tokens', () => {
+    expect(() => hostConfigParams.parse({ rule: 'nginx_directive', directive: 'server_tokens' })).toThrow(/equals/);
   });
 });
 
