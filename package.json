@@ -1,0 +1,34 @@
+{
+  "name": "secagent",
+  "version": "0.1.0",
+  "description": "Stack-agnostic security agent: deterministic probes and a per-project knowledge base, exposed over MCP",
+  "type": "module",
+  "bin": {
+    "secagent": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "knowledge",
+    "agent"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "dev": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}
