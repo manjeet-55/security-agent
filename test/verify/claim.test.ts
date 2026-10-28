@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ObservationError } from '../../src/checks/errors.js';
 import type { Advisories } from '../../src/advisories/types.js';
 import { EvidenceStore } from '../../src/evidence/store.js';
 import { decodeSnapshot, type HostSnapshot } from '../../src/host/snapshot.js';
@@ -69,6 +70,48 @@ describe('verifyClaim on Ubuntu', () => {
 
   it('flags CISA KEV listing', async () => {
     expect((await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { kev: ['CVE-2024-6387'] })).kev).toBe(true);
+  });
+});
+
+function mixedOpenssh(): HostSnapshot {
+  const env = fixtureEnvelope('ubuntu-24-04');
+  const lines = sectionOf(env, 'packages')
+    .split('\n')
+    .map((l) => (l.split('\t')[1] === 'openssh-server' ? l.replace(/1:9\.6p1-3ubuntu13\.20/g, '1:9.6p1-3ubuntu13') : l));
+  return decodeSnapshot(withSection(env, 'packages', lines.join('\n')));
+}
+
+describe('verifyClaim fails closed', () => {
+  it('unverifiable when the package filter matches nothing the advisory tracks', async () => {
+    const r = await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { pkg: 'not-a-real-package' });
+    expect(r.verdict).toBe('unverifiable');
+    expect(r.reason).toContain('does not track package "not-a-real-package"');
+    expect(r.reason).toContain('openssh');
+  });
+
+  it('judges the lowest installed binary version of a source', async () => {
+    const r = await verify(mixedOpenssh(), 'CVE-2024-6387');
+    expect(r.verdict).toBe('vulnerable');
+    expect(r.packages[0]?.installed).toBe('1:9.6p1-3ubuntu13');
+  });
+
+  it('unverifiable when Ubuntu has no status for the host codename', async () => {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    const osr = sectionOf(env, 'os_release').replace('VERSION_CODENAME=noble', 'VERSION_CODENAME=oracular').replace('VERSION_ID="24.04"', 'VERSION_ID="24.10"');
+    const r = await verify(decodeSnapshot(withSection(env, 'os_release', osr)), 'CVE-2024-6387');
+    expect(r.verdict).toBe('unverifiable');
+  });
+
+  it('kev is null when CISA KEV is unavailable', async () => {
+    const advisories = fixtureAdvisories(await tempDir());
+    advisories.kev = {
+      catalog: async () => {
+        throw new ObservationError('ADVISORY_UNAVAILABLE', 'offline');
+      },
+    };
+    const r = await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { advisories });
+    expect(r.kev).toBeNull();
+    expect(r.reason).toContain('CISA KEV was unavailable');
   });
 });
 

@@ -27,7 +27,8 @@ export interface FixablePackage {
 }
 
 /**
- * Source packages to check against distro advisories, one per source at its highest installed version.
+ * Source packages to check against distro advisories, one per source at its lowest installed version
+ * (the conservative choice: a lagging binary must not hide a pending fix).
  * Third-party and locally installed packages are skipped, unless apt lists are empty and origins can't be known.
  */
 export function distroSources(snap: HostSnapshot, codename: string): PackageQuery[] {
@@ -37,7 +38,7 @@ export function distroSources(snap: HostSnapshot, codename: string): PackageQuer
     const kind = classifyOrigin(snap.origins[pkg.name], codename).kind;
     if (!listsEmpty && (kind === 'third_party' || kind === 'local')) continue;
     const current = best.get(pkg.source);
-    if (current === undefined || compareDebVersions(pkg.source_version, current) > 0) best.set(pkg.source, pkg.source_version);
+    if (current === undefined || compareDebVersions(pkg.source_version, current) < 0) best.set(pkg.source, pkg.source_version);
   }
   return [...best].map(([name, version]) => ({ name, version }));
 }

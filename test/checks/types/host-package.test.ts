@@ -15,10 +15,30 @@ async function run(snapshot: ReturnType<typeof decodeSnapshot>, params: Record<s
 }
 
 describe('distroSources', () => {
-  it('returns one entry per source package at its highest installed version', () => {
+  it('returns one entry per source package at its lowest installed version', () => {
     const sources = distroSources(fixtureSnapshot('ubuntu-24-04'), 'noble');
     expect(sources.filter((s) => s.name === 'openssh')).toEqual([{ name: 'openssh', version: '1:9.6p1-3ubuntu13.20' }]);
     expect(new Set(sources.map((s) => s.name)).size).toBe(sources.length);
+  });
+});
+
+describe('distroSources with mixed binary versions', () => {
+  function mixed() {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    const lines = sectionOf(env, 'packages')
+      .split('\n')
+      .map((l) => (l.split('\t')[1] === 'openssh-server' ? l.replace(/1:9\.6p1-3ubuntu13\.20/g, '1:9.6p1-3ubuntu13') : l));
+    return decodeSnapshot(withSection(env, 'packages', lines.join('\n')));
+  }
+
+  it('takes the lowest installed version per source', () => {
+    expect(distroSources(mixed(), 'noble').filter((s) => s.name === 'openssh')).toEqual([{ name: 'openssh', version: '1:9.6p1-3ubuntu13' }]);
+  });
+
+  it('advisories fail with CVE-2024-6387 on that snapshot', async () => {
+    const r = await run(mixed(), { assert: 'advisories' });
+    expect(r.outcome).toBe('fail');
+    expect(r.observed).toContain('CVE-2024-6387');
   });
 });
 

@@ -27,7 +27,8 @@ export interface ClaimResult {
   verdict: ClaimVerdict;
   reason: string;
   packages: PackageVerdict[];
-  kev: boolean;
+  /** `null` when the CISA KEV catalog was unavailable. */
+  kev: boolean | null;
   source_url: string;
   snapshot: string;
   evidence_id: string;
@@ -59,12 +60,15 @@ function compareInstalled(pkg: string, installed: string, fixed: string, status:
   };
 }
 
-/** Source package → highest installed source version. */
+/**
+ * Source package → lowest installed source version. The lowest is the conservative choice: an older binary from the same
+ * source must not be hidden by a newer one.
+ */
 function installedSources(snap: HostSnapshot): Map<string, string> {
   const map = new Map<string, string>();
   for (const p of snap.packages) {
     const cur = map.get(p.source);
-    if (cur === undefined || compareDebVersions(p.source_version, cur) > 0) map.set(p.source, p.source_version);
+    if (cur === undefined || compareDebVersions(p.source_version, cur) < 0) map.set(p.source, p.source_version);
   }
   return map;
 }
@@ -96,6 +100,15 @@ async function judge(snap: HostSnapshot, cve: string, advisories: Advisories, on
     const record = await advisories.ubuntu.cve(cve);
     if (!record) return { packages: [], reason: `Ubuntu has no record of ${cve}.`, source_url, whenEmpty: 'unverifiable' };
     const tracked = record.packages.filter((p) => only === undefined || p.name === only);
+    if (only !== undefined && tracked.length === 0) {
+      const all = record.packages.map((p) => p.name).join(', ') || 'none';
+      return {
+        packages: [],
+        reason: `Ubuntu for ${cve} does not track package "${only}" (tracked: ${all}).`,
+        source_url,
+        whenEmpty: 'unverifiable',
+      };
+    }
     const packages: PackageVerdict[] = [];
     for (const p of tracked) {
       const version = installed.get(p.name);
@@ -122,6 +135,15 @@ async function judge(snap: HostSnapshot, cve: string, advisories: Advisories, on
   const record = await advisories.osv.vuln(`DEBIAN-${cve}`);
   if (!record) return { packages: [], reason: `The Debian security tracker (via OSV) has no record of ${cve}.`, source_url, whenEmpty: 'unverifiable' };
   const entries = (record.affected ?? []).filter((a) => only === undefined || a.package.name === only);
+  if (only !== undefined && entries.length === 0) {
+    const all = [...new Set((record.affected ?? []).map((a) => a.package.name))].join(', ') || 'none';
+    return {
+      packages: [],
+      reason: `The Debian record for ${cve} does not track package "${only}" (tracked: ${all}).`,
+      source_url,
+      whenEmpty: 'unverifiable',
+    };
+  }
   const forRelease = entries.filter((a) => a.package.ecosystem === distro.ecosystem);
   const packages: PackageVerdict[] = [];
   for (const a of forRelease) {
@@ -170,10 +192,11 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
     if (ageDays > 7) reason += ` Note: the snapshot is ${ageDays} days old.`;
   }
 
-  let kev = false;
+  let kev: boolean | null = false;
   try {
     kev = (await deps.advisories.kev.catalog()).has(cve);
   } catch {
+    kev = null;
     reason += ' (CISA KEV was unavailable.)';
   }
 
