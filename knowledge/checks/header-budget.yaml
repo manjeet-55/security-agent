@@ -1,0 +1,14 @@
+id: header-budget
+type: header_budget
+title: Response headers stay well below proxy buffer limits
+severity: medium
+applies_to: [web, api]
+params:
+  warn_bytes: 3072
+  high_bytes: 4096
+fix_hints:
+  nginx: 'proxy_buffer_size 16k; proxy_buffers 8 16k; proxy_busy_buffers_size 32k;'
+  any: 'Also shrink what the app sends: large session cookies (tokens embedding profile data or photos) and long CSP strings.'
+source_url: https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffer_size
+added_by: seed
+review: approved

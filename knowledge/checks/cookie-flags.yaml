@@ -1,0 +1,16 @@
+id: cookie-flags
+type: http_cookie
+title: Cookies set Secure, HttpOnly and SameSite
+severity: medium
+applies_to: [web, api]
+params:
+  require: [secure, httponly, samesite]
+fix_hints:
+  nginx: 'proxy_cookie_flags ~ secure httponly samesite=lax;  (nginx 1.19.3+)'
+  express: "express-session / res.cookie(name, value, { secure: true, httpOnly: true, sameSite: 'lax' })"
+  nestjs: "res.cookie(name, value, { secure: true, httpOnly: true, sameSite: 'lax' })"
+  nextjs: "cookies().set(name, value, { secure: true, httpOnly: true, sameSite: 'lax' })"
+  any: 'Cookies that client-side JS must read (e.g. CSRF tokens) may skip HttpOnly; document that as an accepted exception.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
+added_by: seed
+review: approved
