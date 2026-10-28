@@ -62,6 +62,9 @@ describe('isHandshakeRejection', () => {
     ['TIMEOUT', false],
     ['ECONNREFUSED', false],
     ['ENOTFOUND', false],
+    ['ERR_SSL_LEGACY_SIGALG_DISALLOWED_OR_UNSUPPORTED', false],
+    ['ERR_SSL_WRONG_VERSION_NUMBER', false],
+    ['ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE', true],
   ])('%s → %s', (code, expected) => {
     expect(isHandshakeRejection(code)).toBe(expected);
   });

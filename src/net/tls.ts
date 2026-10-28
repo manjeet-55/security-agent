@@ -41,15 +41,13 @@ export interface TlsOptions {
   lookup?: LookupFunction;
 }
 
-/** Our own client could not offer what was asked: the server's policy was never observed. */
-const CLIENT_SIDE = new Set(['ERR_SSL_NO_PROTOCOLS_AVAILABLE', 'ERR_SSL_NO_CIPHERS_AVAILABLE', 'ERR_SSL_NO_CIPHER_MATCH']);
-/** Network failures: nothing about TLS was observed. */
-const NETWORK = new Set(['TIMEOUT', 'CONNECT_TIMEOUT', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT', 'DNS_FAILED']);
-
-/** True when an error code means the server refused the offered protocol or ciphers. */
+/**
+ * True only when the server demonstrably refused: an explicit TLS alert, an unsupported-protocol error, or the
+ * connection being torn down. Other ERR_SSL_* codes (e.g. client-side signature-algorithm rejections that can
+ * follow an accepted handshake) say nothing about the server's policy and stay unverifiable.
+ */
 export function isHandshakeRejection(code: string): boolean {
-  if (CLIENT_SIDE.has(code) || NETWORK.has(code)) return false;
-  return code.startsWith('ERR_SSL_') || code === 'ECONNRESET' || code === 'EPIPE';
+  return /_ALERT_/.test(code) || code === 'ERR_SSL_UNSUPPORTED_PROTOCOL' || code === 'ECONNRESET' || code === 'EPIPE';
 }
 
 function formatName(name: unknown): string {
