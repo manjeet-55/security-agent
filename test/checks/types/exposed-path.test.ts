@@ -61,6 +61,28 @@ describe('exposed_path check', () => {
     expect(evidence).not.toContain('supersecret');
   });
 
+  describe('source maps with a late "mappings" key', () => {
+    const rollupMap = `{"version":3,"file":"main.js","sources":["a.ts"],"sourcesContent":["${'x'.repeat(5000)}"],"names":[],"mappings":"AAAA"}`;
+    const cases: Array<[string, string]> = [
+      ['a Rollup-style map', rollupMap],
+      ['a map with the XSSI prefix', `)]}'\n${rollupMap}`],
+    ];
+    it.each(cases)('detects %s truncated to the 4096-char snippet', async (_name, map) => {
+      const { ctx } = await makeCtx({
+        http: async (url) => {
+          const pathname = new URL(url).pathname;
+          if (pathname === '/') return fakeObs({ url, status: 200, bodySnippet: '<html><script src="/main.js"></script></html>' });
+          if (pathname === '/main.js.map') return fakeObs({ url, status: 200, bodySnippet: map.slice(0, 4096) });
+          return fakeObs({ url, status: 404, bodySnippet: 'nope' });
+        },
+      });
+      const params = exposedPathParams.parse({ paths: [{ path: '/.env', signature: '^[A-Z][A-Z0-9_]*\\s*=', severity: 'critical' }] });
+      const out = await exposedPathCheck.run(ctx, targetSubject(ctx), params, {} as never);
+      expect(out.outcome).toBe('fail');
+      expect(out.observed).toContain('/main.js.map');
+    });
+  });
+
   it('rejects an invalid signature regex', () => {
     expect(exposedPathParams.safeParse({ paths: [{ path: '/.env', signature: '([', severity: 'high' }] }).success).toBe(false);
   });

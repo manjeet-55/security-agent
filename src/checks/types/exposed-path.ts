@@ -31,7 +31,8 @@ export const exposedPathParams = z.object({
 });
 export type ExposedPathParams = z.infer<typeof exposedPathParams>;
 
-const SOURCE_MAP_SIGNATURE = /"mappings"\s*:/;
+// Match the document header: bundlers such as Vite/Rollup emit "mappings" last, beyond the 4096-char snippet.
+const SOURCE_MAP_SIGNATURE = /^\s*(?:\)\]\}'[^\n]*\n)?\s*\{\s*"version"\s*:\s*3\b/;
 
 /** Exposed = 200, different from the random-path baseline (SPA fallback), and matching the file's signature. */
 export function isExposed(obs: HttpObservation, baseline: HttpObservation, signature: RegExp): boolean {
