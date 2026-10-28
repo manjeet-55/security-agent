@@ -5502,3 +5502,22 @@ Expected from `git status --short lab/project`: only `.secagent/.gitignore`, `.s
 - `npx tsc -p tsconfig.json` is clean, and `npm run build` produces `dist/cli.js`.
 - `secagent init` + `secagent scan --no-ai` work on any project, writing `.secagent/findings/latest.json`, history and evidence.
 - Every network touch is scope-checked. Evidence contains no cookie values or exposed-file contents.
+
+---
+
+## Amendments after execution (2026-10-28)
+
+The repo owner approved two fix rounds from review. They change the code shown in the tasks above:
+
+- **Fix 1:**
+  - `Scope` no longer caches transient DNS failures, and its resolver is injectable.
+  - `isPrivateAddress` uses one BlockList and adds the reserved and multicast ranges, plus embedded IPv4 in NAT64 and 6to4.
+  - Source maps are detected by their `{"version":3` header.
+- **Fix 2:**
+  - **Node support:** Node 20.19+ (vitest 4.1.12, vite 7.3.7, @types/node 20.19.43). The Node and dependency pins in Global Constraints are superseded.
+  - **Probes:** they connect only to scope-validated addresses (`pinnedLookup`). Host header overrides and unlisted SNI names are refused.
+  - **TLS refusals:** only explicit TLS alerts, `ERR_SSL_UNSUPPORTED_PROTOCOL`, `ECONNRESET` and `EPIPE` count.
+  - **Cookies:** nameless Set-Cookie values are redacted.
+  - **Findings:** open findings stay open through unverifiable scans.
+  - **Port checks:** `port_exposure` supports hosts only, and the catalog enforces `applies_to ⊆ supports`.
+  - **Address guard:** `isPrivateAddress` fails closed.

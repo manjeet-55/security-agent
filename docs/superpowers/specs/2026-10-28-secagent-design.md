@@ -55,7 +55,7 @@ None of this depends on the application's tech stack. Fiftyfive runs Angular, Vu
 | Decision | Choice | Why |
 |---|---|---|
 | Form factor | MCP server plus portable agent playbook (approach A); a thin API-key runner is a stretch (approach C) | No LLM adapter code. Works in any MCP client. Tools are testable without an LLM. |
-| Language | TypeScript, Node 22.12+ (vitest 5's floor; Node 20 is end-of-life) | The company's stack is Node-heavy. Official MCP SDK. Node's `tls`/`net`/`dns` built-ins mean no nmap or testssl dependency. |
+| Language | TypeScript, Node 20.19+ (supported range 20.19+, 22, 24; tested on all three) | The company's stack is Node-heavy. Official MCP SDK. Node's `tls`/`net`/`dns` built-ins mean no nmap or testssl dependency. |
 | Who finds vs who reasons | Deterministic tools produce facts and evidence; the LLM triages, explains, fixes and learns | The LLM never invents CVEs or findings |
 | Server access | Generated read-only collector script that the developer runs; output dropped into `.secagent/hosts/` | Works under every access setup (SSH, SSM, console). A human sees what runs. |
 | Knowledge base storage | Plain files (Markdown + YAML frontmatter, YAML, JSON), with no vector DB | Hundreds of docs, not millions. Diffable, reviewable in git, readable by any model. |
@@ -505,7 +505,7 @@ Output: Markdown in `.secagent/reports/`, plus a self-contained HTML file.
 | Command | Behaviour |
 |---|---|
 | `secagent init` | Stack detection; `project.yaml` from flags (`--target id=url,type,env`, `--host name=address,env`, `--scan-label`), because the agent's `init` phase does the interviewing; `.gitignore`; MCP config; `AGENTS.md` pointer |
-| `secagent scan --no-ai` | `run_checks` for every target plus `analyze_host` for every fresh snapshot. Maps fail→`open`, unverifiable→`unverifiable`. Writes findings and a report. No LLM. |
+| `secagent scan --no-ai` | `run_checks` for every target plus `analyze_host` for every fresh snapshot. Maps fail→`open`, unverifiable→`unverifiable`; a finding that was `open` stays `open` (marked not re-verified, `verified_at` unchanged) when its check is unverifiable or errors. Writes findings and a report. No LLM. |
 | `secagent mcp` | Starts the MCP server over stdio |
 | `secagent learn` | Deterministic feed refresh only (the research channel needs an agent) |
 | `secagent kb review` | Review pending knowledge-base entries |
