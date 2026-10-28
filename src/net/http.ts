@@ -1,5 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
+import type { LookupFunction } from 'node:net';
 import { NetError, toNetError } from './errors.js';
 import { stripBrackets } from './ip.js';
 
@@ -32,6 +33,8 @@ export interface HttpOptions {
   method?: 'GET' | 'HEAD';
   headers?: Record<string, string>;
   maxBodyBytes?: number;
+  /** Overrides DNS resolution; ScopedNet pins it to the addresses the scope guard validated. */
+  lookup?: LookupFunction;
 }
 
 export const USER_AGENT = 'secagent/0.1 (+security self-assessment; authorised targets only)';
@@ -79,6 +82,7 @@ export function httpRequest(url: string, opts: HttpOptions): Promise<HttpObserva
       // credentials. Certificate trust is judged by the separate TLS check.
       rejectUnauthorized: false,
       agent: false,
+      ...(opts.lookup ? { lookup: opts.lookup } : {}),
     });
     const totalTimer = setTimeout(
       () => req.destroy(new NetError('TIMEOUT', `No complete response from ${url} within ${timeoutMs}ms`)),

@@ -1,5 +1,6 @@
-import type { Scope } from '../project/scope.js';
+import { ScopeError, type Scope } from '../project/scope.js';
 import { NetError } from './errors.js';
+import { pinnedLookup } from './ip.js';
 import { httpRequest, type HttpObservation, type HttpOptions } from './http.js';
 import { tcpProbe, type PortState } from './tcp.js';
 import { tlsHandshake, type TlsObservation, type TlsOptions } from './tls.js';
@@ -32,9 +33,19 @@ export class ScopedNet implements NetClient {
   ) {}
 
   async http(url: string, opts: Pick<HttpOptions, 'method' | 'headers'> = {}): Promise<HttpObservation> {
-    await this.scope.assertUrlAllowed(url);
+    if (Object.keys(opts.headers ?? {}).some((k) => k.toLowerCase() === 'host')) {
+      throw new ScopeError('Overriding the Host header is not allowed');
+    }
+    const addresses = await this.scope.assertUrlAllowed(url);
+    const lookup = pinnedLookup(addresses);
     return withRetry(() =>
-      httpRequest(url, { family: this.family, timeoutMs: this.timeouts.totalMs, connectTimeoutMs: this.timeouts.connectMs, ...opts }),
+      httpRequest(url, {
+        family: this.family,
+        timeoutMs: this.timeouts.totalMs,
+        connectTimeoutMs: this.timeouts.connectMs,
+        ...opts,
+        lookup,
+      }),
     );
   }
 
@@ -43,12 +54,14 @@ export class ScopedNet implements NetClient {
     port: number,
     opts: Pick<TlsOptions, 'minVersion' | 'maxVersion' | 'ciphers' | 'servername'> = {},
   ): Promise<TlsObservation> {
-    await this.scope.assertHostnameAllowed(host);
-    return withRetry(() => tlsHandshake(host, port, { family: this.family, timeoutMs: this.timeouts.totalMs, ...opts }));
+    const addresses = await this.scope.assertHostnameAllowed(host);
+    if (opts.servername) await this.scope.assertHostnameAllowed(opts.servername);
+    const lookup = pinnedLookup(addresses);
+    return withRetry(() => tlsHandshake(host, port, { family: this.family, timeoutMs: this.timeouts.totalMs, ...opts, lookup }));
   }
 
   async tcp(host: string, port: number): Promise<PortState> {
-    await this.scope.assertHostnameAllowed(host);
-    return tcpProbe(host, port, { family: this.family, timeoutMs: this.timeouts.connectMs });
+    const addresses = await this.scope.assertHostnameAllowed(host);
+    return tcpProbe(host, port, { family: this.family, timeoutMs: this.timeouts.connectMs, lookup: pinnedLookup(addresses) });
   }
 }

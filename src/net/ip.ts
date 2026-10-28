@@ -1,5 +1,5 @@
 import { lookup } from 'node:dns/promises';
-import { BlockList, isIP } from 'node:net';
+import { BlockList, isIP, type LookupFunction } from 'node:net';
 import { toNetError } from './errors.js';
 
 // One list for both families: Node matches IPv4-mapped IPv6 (including hex form) against the IPv4 subnets.
@@ -81,4 +81,28 @@ export async function resolveAddresses(hostname: string, family: 4 | 6): Promise
   } catch (e) {
     throw toNetError(e, 'DNS_FAILED');
   }
+}
+
+/**
+ * A dns.lookup replacement that answers only with addresses the scope guard already validated, so a name
+ * that re-resolves differently (DNS rebinding) cannot steer a probe elsewhere.
+ */
+export function pinnedLookup(addresses: readonly string[]): LookupFunction {
+  const pinned = addresses
+    .map((a) => stripBrackets(a))
+    .map((address) => ({ address, family: isIP(address) }))
+    .filter((a) => a.family !== 0);
+  return (hostname, options, callback) => {
+    const requested = options.family === 'IPv4' ? 4 : options.family === 'IPv6' ? 6 : (options.family ?? 0);
+    const list = pinned.filter((a) => requested === 0 || a.family === requested);
+    const first = list[0];
+    if (!first) {
+      const err = Object.assign(new Error(`no validated address for ${hostname}`), { code: 'ENOTFOUND' }) as NodeJS.ErrnoException;
+      if (options.all) callback(err, []);
+      else callback(err, '', 0);
+      return;
+    }
+    if (options.all) callback(null, list);
+    else callback(null, first.address, first.family);
+  };
 }

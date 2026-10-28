@@ -1,4 +1,4 @@
-import { isIP } from 'node:net';
+import { isIP, type LookupFunction } from 'node:net';
 import tls, { type PeerCertificate, type SecureVersion } from 'node:tls';
 import { NetError, toNetError } from './errors.js';
 import { stripBrackets } from './ip.js';
@@ -37,6 +37,8 @@ export interface TlsOptions {
   maxVersion?: SecureVersion;
   ciphers?: string;
   now?: Date;
+  /** Overrides DNS resolution; ScopedNet pins it to the addresses the scope guard validated. */
+  lookup?: LookupFunction;
 }
 
 /** Our own client could not offer what was asked: the server's policy was never observed. */
@@ -82,6 +84,7 @@ export function tlsHandshake(host: string, port: number, opts: TlsOptions): Prom
     port,
     family: opts.family,
     rejectUnauthorized: false,
+    ...(opts.lookup ? { lookup: opts.lookup } : {}),
     ...(servername ? { servername } : {}),
     ...(opts.minVersion ? { minVersion: opts.minVersion } : {}),
     ...(opts.maxVersion ? { maxVersion: opts.maxVersion } : {}),

@@ -18,13 +18,13 @@ export interface Running {
 
 type Handler = (req: http.IncomingMessage, res: http.ServerResponse) => void;
 
-function listen(server: http.Server | https.Server | tls.Server, scheme: string): Promise<Running> {
+function listen(server: http.Server | https.Server | tls.Server, scheme: string, host: string): Promise<Running> {
   return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(0, host, () => {
       const { port } = server.address() as AddressInfo;
       resolve({
         port,
-        url: `${scheme}://127.0.0.1:${port}`,
+        url: `${scheme}://${host}:${port}`,
         close: () =>
           new Promise<void>((done) => {
             if ('closeAllConnections' in server) server.closeAllConnections();
@@ -35,19 +35,19 @@ function listen(server: http.Server | https.Server | tls.Server, scheme: string)
   });
 }
 
-export function startHttp(handler: Handler): Promise<Running> {
-  return listen(http.createServer(handler), 'http');
+export function startHttp(handler: Handler, host = '127.0.0.1'): Promise<Running> {
+  return listen(http.createServer(handler), 'http', host);
 }
 
-export function startHttps(handler: Handler, tlsOpts: tls.TlsOptions = {}): Promise<Running> {
-  return listen(https.createServer({ key: TEST_KEY, cert: TEST_CERT, ...tlsOpts }, handler), 'https');
+export function startHttps(handler: Handler, tlsOpts: tls.TlsOptions = {}, host = '127.0.0.1'): Promise<Running> {
+  return listen(https.createServer({ key: TEST_KEY, cert: TEST_CERT, ...tlsOpts }, handler), 'https', host);
 }
 
 /** A bare TLS server that completes the handshake and closes. */
-export function startTls(tlsOpts: tls.TlsOptions = {}): Promise<Running> {
+export function startTls(tlsOpts: tls.TlsOptions = {}, host = '127.0.0.1'): Promise<Running> {
   const server = tls.createServer({ key: TEST_KEY, cert: TEST_CERT, ...tlsOpts }, (socket) => socket.end());
   server.on('tlsClientError', () => {});
-  return listen(server, 'tls');
+  return listen(server, 'tls', host);
 }
 
 /** Call at module or describe level: servers started through the returned track() are closed after each test. */
