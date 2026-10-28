@@ -343,13 +343,14 @@ The script is POSIX `sh`, read-only, and needs `sudo` only for `sshd -T` and `ng
 
 **Redaction** happens on the host before encoding, and targets values, not config keys:
 - nginx `$variables` whose names contain secret, token, passw, api-key or private;
-- credential-bearing header directives (`proxy_set_header` and friends, for Authorization, Cookie, token, secret and api-key headers);
+- credential-bearing header directives (`proxy_set_header` and friends) whose header name contains authorization, cookie, token, secret, passw, api-key, key, auth, credential, session or signature;
+- the bodies of `map` and `geo` blocks, replaced with a marker (the block header stays);
 - Bearer tokens;
-- `user:pass@` in URLs.
+- any URL `userinfo@` (`user:pass@`, `token@`, and passwords containing `@`).
 
-This was verified against planted secrets on Ubuntu 22.04/24.04 and Debian 12. Multi-line nginx `map` blocks are not redacted, a documented limitation.
+This was verified against planted secrets on Ubuntu 22.04/24.04 and Debian 12. Multi-line values of other directives are not redacted, a documented limitation.
 
-`analyze_host` parses the newest snapshot. A non-Debian `os_release` makes package checks `unverifiable: unsupported_distro`; config checks still run. Snapshots are added with `secagent snapshot add --host <name> <file>`, which validates the output. Package origin comes from the apt suite and component, not the mirror host: a source whose suite is the host codename (or `codename-*`) with a distro component is distro, and anything else (PPAs, nginx.org, docker) is third-party. When apt lists are empty, origins are unknowable and the third-party check is `unverifiable`.
+`analyze_host` parses the newest snapshot. A non-Debian `os_release` makes package checks `unverifiable: unsupported_distro`; config checks still run. Snapshots are added with `secagent snapshot add --host <name> <file>`, which validates the output. Package origin comes from the apt suite and component, not the mirror host: a source whose suite is the host codename (or `codename-*`) with a distro component is distro only if it is also on a distro host (`ubuntu.com`, `debian.org` or a subdomain) or at a distro mirror path (ending `/ubuntu`, `/ubuntu-ports`, `/debian` or `/debian-security`, so arbitrary mirrors still count); anything else (PPAs, nginx.org, docker, and vendor repos such as `packages.sury.org` that reuse the codename and `main`) is third-party. When apt lists are empty, origins are unknowable and the third-party check is `unverifiable`.
 
 ### 7.1 Verifying third-party scanner claims
 
@@ -440,9 +441,9 @@ The cache lives in `$SECAGENT_CACHE_DIR`, or `~/.cache/secagent/advisories` when
 Offline scans use the cache, and the report states "knowledge as of <date>".
 
 **Fail-closed rules (from review):**
-- `host_package` `advisories` is `unverifiable` when no distro package can be checked (`NO_DISTRO_PACKAGES`), and reports the number of skipped non-distro packages. It judges the lowest installed version per source package.
+- `host_package` advisories is `unverifiable` when no distro package can be checked (`NO_DISTRO_PACKAGES`); otherwise it reports the number of skipped non-distro packages. It judges the lowest installed version per source package.
 - `verify_claim` judges the lowest installed version per source. An unmatched `--package` filter yields `unverifiable`. Its result's `kev` is `boolean | null`, where `null` means CISA KEV was unavailable.
-- A 404 or malformed response from OSV or KEV counts as unavailable, never as clean.
+- A 404 or malformed response from OSV or KEV counts as unavailable (or served from a stale cached copy, if one exists), never as clean.
 - Advisory cache write failures don't discard fetched data.
 
 ## 9. Agent layer
