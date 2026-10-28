@@ -44,11 +44,12 @@ export function parseSetCookie(raw: string): CookieObservation {
   const [pair = '', ...rest] = raw.split(';').map((s) => s.trim());
   const attrs = rest.filter(Boolean);
   const eq = pair.indexOf('=');
-  const name = eq === -1 ? pair : pair.slice(0, eq);
+  // Per RFC 6265bis a pair without "=" is a nameless cookie whose string is its value, so never keep it as the name.
+  const name = eq === -1 ? '' : pair.slice(0, eq);
   return {
     name,
     attributes: attrs.map((a) => a.toLowerCase()),
-    redacted: [`${name}=<redacted>`, ...attrs].join('; '),
+    redacted: [eq === -1 ? '<redacted>' : `${name}=<redacted>`, ...attrs].join('; '),
   };
 }
 

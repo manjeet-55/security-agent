@@ -13,6 +13,12 @@ describe('parseSetCookie', () => {
       redacted: 'sid=<redacted>; Path=/; Secure; HttpOnly; SameSite=Lax',
     });
   });
+
+  it('redacts a nameless cookie, whose string is its value', () => {
+    const cookie = parseSetCookie('s3cr3t; Path=/');
+    expect(cookie).toEqual({ name: '', attributes: ['path=/'], redacted: '<redacted>; Path=/' });
+    expect(JSON.stringify(cookie)).not.toContain('s3cr3t');
+  });
 });
 
 describe('countHeaderBytes', () => {

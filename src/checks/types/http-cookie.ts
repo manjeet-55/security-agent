@@ -13,7 +13,7 @@ export function evaluateCookies(obs: HttpObservation, p: HttpCookieParams): { ou
   const problems: string[] = [];
   for (const cookie of obs.setCookies) {
     const missing = p.require.filter((flag) => !cookie.attributes.some((a) => a === flag || a.startsWith(`${flag}=`)));
-    if (missing.length > 0) problems.push(`${cookie.name} missing ${missing.join(', ')}`);
+    if (missing.length > 0) problems.push(`${cookie.name || '(unnamed)'} missing ${missing.join(', ')}`);
   }
   if (problems.length > 0) return { outcome: 'fail', observed: problems.join('; ') };
   return { outcome: 'pass', observed: `${obs.setCookies.length} cookie(s) set, all with ${p.require.join(', ')}` };

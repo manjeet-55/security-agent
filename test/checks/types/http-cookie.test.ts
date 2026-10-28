@@ -22,4 +22,9 @@ describe('evaluateCookies', () => {
   it('can require a subset of flags', () => {
     expect(evaluateCookies(cookies('sid=x; Secure'), httpCookieParams.parse({ require: ['secure'] })).outcome).toBe('pass');
   });
+  it('labels a nameless cookie (unnamed) and never echoes its value', () => {
+    const result = evaluateCookies(cookies('s3cr3t; Path=/'), P);
+    expect(result.observed).toContain('(unnamed)');
+    expect(result.observed).not.toContain('s3cr3t');
+  });
 });
