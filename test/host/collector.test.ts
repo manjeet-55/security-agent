@@ -59,4 +59,65 @@ describe.runIf(linuxWithSh)('collector.sh', () => {
     expect(out).toContain('server_tokens off;');
     expect(out).toContain('proxy_set_header Host $host;');
   });
+
+  const extractRedact = () => /redact\(\) \{[\s\S]*?\n\}/.exec(SCRIPT)?.[0] ?? '';
+
+  it('redacts env values, secret-named directives, URL query credentials, continued headers and brace-on-next-line maps', () => {
+    const input = [
+      'env SECRET_ENVVAL=envsecret77;',
+      'env TZ;',
+      'http {',
+      '\tserver_tokens off;',
+      '\tsecure_link_secret linksecret55;',
+      '\tauth_jwt_key "jwtkeyval99";',
+      '\tauth_jwt_key_file /etc/nginx/jwt.key;',
+      '\tssl_password_file /etc/nginx/pass.txt;',
+      '\tproxy_pass http://up.example.invalid/x?api_key=querysecret1&mode=fast&sig=sigval22;',
+      '\tproxy_set_header Authorization',
+      '\t    "Bearer-less-continued-secret";',
+      '\tproxy_set_header Host $host;',
+      '\tmap $a $b',
+      '\t{',
+      '\t    "nextlinemapsecret" 1;',
+      '\t    default 0;',
+      '\t}',
+      '\tgeo $g',
+      '{',
+      '    10.1.0.0/16 geonextsecret;',
+      '}',
+      '\tlisten 443 ssl;',
+      '}',
+    ].join('\n');
+    const run = spawnSync('sh', ['-c', `${extractRedact()}\nredact`], { input, encoding: 'utf8' });
+    expect(run.status).toBe(0);
+    const out = run.stdout;
+    for (const secret of ['envsecret77', 'linksecret55', 'jwtkeyval99', 'querysecret1', 'sigval22', 'continued-secret', 'nextlinemapsecret', 'geonextsecret'])
+      expect(out).not.toContain(secret);
+    for (const kept of [
+      'env TZ;',
+      'server_tokens off;',
+      'auth_jwt_key_file /etc/nginx/jwt.key;',
+      'ssl_password_file /etc/nginx/pass.txt;',
+      'mode=fast',
+      'proxy_set_header Host $host;',
+      'listen 443 ssl;',
+      'proxy_set_header Authorization',
+    ])
+      expect(out).toContain(kept);
+    expect(out).toContain('env SECRET_ENVVAL=<redacted>;');
+  });
+
+  it('emit yields JSON with rc and b64 per section', () => {
+    const head = SCRIPT.slice(0, SCRIPT.indexOf('emit uid'));
+    const script = `${head}emit ok 'echo hello'\nemit bad 'echo oops; exit 3'\nprintf '}}\\n'\n`;
+    const run = spawnSync('sh', ['-c', script], { encoding: 'utf8' });
+    expect(run.status).toBe(0);
+    const doc = JSON.parse(run.stdout) as { schema: number; collected_at: string; sections: Record<string, { rc: number; b64: string }> };
+    expect(doc.schema).toBe(1);
+    expect(Object.keys(doc.sections)).toEqual(['ok', 'bad']);
+    expect(doc.sections.bad?.rc).toBe(3);
+    expect(Buffer.from(doc.sections.bad?.b64 ?? '', 'base64').toString()).toBe('oops\n');
+    expect(doc.sections.ok?.rc).toBe(0);
+    expect(Buffer.from(doc.sections.ok?.b64 ?? '', 'base64').toString()).toContain('hello');
+  });
 });
