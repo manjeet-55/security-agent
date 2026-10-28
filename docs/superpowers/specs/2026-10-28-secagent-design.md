@@ -361,7 +361,7 @@ Clients often send reports from external scanners (SecurityScorecard and similar
 - installed version, distro fixed version, source URL;
 - a verdict:
   - `fixed_in_installed`: installed ≥ fixed
-  - `not_affected`: the distro marks the package not affected
+  - `not_affected`: the distro marks the installed distro-origin package not affected
   - `vulnerable`: installed < fixed
   - `no_fix_available`
   - `unverifiable`: no snapshot, unsupported distro, or no advisory data;
@@ -443,6 +443,11 @@ Offline scans use the cache, and the report states "knowledge as of <date>".
 **Fail-closed rules (from review):**
 - `host_package` advisories is `unverifiable` when no distro package can be checked (`NO_DISTRO_PACKAGES`); otherwise it reports the number of skipped non-distro packages. It judges the lowest installed version per source package.
 - `verify_claim` judges the lowest installed version per source. An unmatched `--package` filter yields `unverifiable`. Its result's `kev` is `boolean | null`, where `null` means CISA KEV was unavailable.
+- Held packages (dpkg state `hi`, `iW`, ...) count as installed; only `n` (not installed) and `c` (config files) rows are ignored. A failed, missing or empty packages section is `NO_PACKAGES` (unverifiable), never an empty list. A `reboot` section must be rc 0 and print `required` or `not-required`.
+- `verify_claim` dismisses a finding (`fixed_in_installed`, `not_affected`) only for packages whose every installed binary comes from a distro repository. A third-party, locally installed or unknown origin (including empty apt lists) makes the verdict `unverifiable` and names the repository; `vulnerable` stands. When no tracked source package is installed the verdict is `unverifiable` ("if the service runs from a container, snap or source build, verify it there"), not `not_affected`.
+- An advisory lookup failure during `verify_claim` is `unverifiable` with the error in the evidence. A snapshot older than 7 days (the same limit host checks use) or dated more than an hour in the future turns would-be safe verdicts into `unverifiable`; `vulnerable` and `no_fix_available` stand with a note.
+- A missing `sshd` or `nginx` passes only when the snapshot ran as root and dpkg lists no `openssh-server` (resp. `nginx*`, `openresty`); otherwise it is unverifiable. When the snapshot was not collected as root, any `sshd -T` or `nginx -T` failure is unverifiable ("run the collector as root").
+- `snapshot add` rejects a `collected_at` more than an hour in the future, and a stored snapshot dated that far ahead is `SNAPSHOT_INVALID` for checks. Host names are validated on read as on write. `nginx_directive` checks must set `equals` or `forbid_tokens`.
 - A 404 or malformed response from OSV or KEV counts as unavailable (or served from a stale cached copy, if one exists), never as clean.
 - Advisory cache write failures don't discard fetched data.
 
