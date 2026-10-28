@@ -1,0 +1,13 @@
+id: tls-no-legacy
+type: tls
+title: TLS 1.0 and 1.1 are refused
+severity: high
+applies_to: [web, api]
+params:
+  assert: no_legacy
+fix_hints:
+  nginx: 'ssl_protocols TLSv1.2 TLSv1.3;'
+  any: 'On an AWS ALB/NLB, use a TLS 1.2+ security policy such as ELBSecurityPolicy-TLS13-1-2-2021-06. On CDNs, set the minimum TLS version to 1.2.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html
+added_by: seed
+review: approved

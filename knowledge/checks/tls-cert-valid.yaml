@@ -1,0 +1,13 @@
+id: tls-cert-valid
+type: tls
+title: Certificate is trusted, matches the hostname and has at least 21 days left
+severity: high
+applies_to: [web, api]
+params:
+  assert: cert
+  min_cert_days: 21
+fix_hints:
+  any: 'Renew and automate renewal (certbot, ACM). Check every listener, including vhosts reached by direct IP, not only the main domain.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html
+added_by: seed
+review: approved
