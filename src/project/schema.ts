@@ -31,6 +31,8 @@ export const HostSchema = z.object({
   reachable_from: z.array(z.string()).default([]),
   serves: z.array(z.string()).default([]),
   allow_private: z.boolean().default(false),
+  /** Exact host names of apt mirrors a person vouches for as copies of the official distro archive (cloud images often use one). */
+  distro_mirrors: z.array(z.string().regex(/^[a-z0-9][a-z0-9.-]*$/, 'a lowercase host name, no scheme, path or wildcard')).default([]),
 });
 
 /** Settings for the checks that scan the project directory itself (no network). */

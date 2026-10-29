@@ -47,14 +47,15 @@ function repoHost(url: string): string | undefined {
  * - `third_party`: anything else (a different suite or component such as nginx.org `noble/nginx`, docker `noble/stable`,
  *   and PPAs on launchpad).
  */
-function repoKind(source: string, codename: string): RepoKind {
+function repoKind(source: string, codename: string, mirrors: readonly string[] = []): RepoKind {
   const [url = '', suiteComponent = ''] = source.split(/\s+/);
   const [suite = '', component = ''] = suiteComponent.split('/');
   const host = repoHost(url);
   if (host === undefined) return 'unknown';
   const distroLooking = codename !== '' && (suite === codename || suite.startsWith(`${codename}-`)) && DISTRO_COMPONENTS.has(component);
   if (!distroLooking || host.includes('launchpad')) return 'third_party';
-  return DISTRO_HOST.test(host) ? 'distro' : 'unknown';
+  // A mirror a person listed in project.yaml (distro_mirrors) counts like the distro's own host; the suite and component rules still apply.
+  return DISTRO_HOST.test(host) || mirrors.includes(host) ? 'distro' : 'unknown';
 }
 
 /**
@@ -64,11 +65,11 @@ function repoKind(source: string, codename: string): RepoKind {
  * no apt-cache data at all. It is third-party when a clearly different repo carries it (nginx.org, docker, PPAs).
  * Otherwise it was installed locally. `unknown` and `third_party` both mean "do not trust distro advisories for this".
  */
-export function classifyOrigin(origin: PackageOrigin | undefined, codename: string): { kind: OriginKind; repo?: string } {
+export function classifyOrigin(origin: PackageOrigin | undefined, codename: string, mirrors: readonly string[] = []): { kind: OriginKind; repo?: string } {
   if (!origin) return { kind: 'unknown' };
   const repos = origin.sources.filter((s) => s !== LOCAL_STATUS);
   if (repos.length > 0) {
-    const kinds = repos.map((s) => [s, repoKind(s, codename)] as const);
+    const kinds = repos.map((s) => [s, repoKind(s, codename, mirrors)] as const);
     const distro = kinds.find(([, k]) => k === 'distro');
     if (distro) return { kind: 'distro', repo: distro[0] };
     const unknown = kinds.find(([, k]) => k === 'unknown');
@@ -77,7 +78,7 @@ export function classifyOrigin(origin: PackageOrigin | undefined, codename: stri
   let unknownOffer: string | undefined;
   for (const offered of origin.available) {
     if (compareDebVersions(offered.version, origin.installed) <= 0) continue;
-    const kinds = offered.sources.map((s) => [s, repoKind(s, codename)] as const);
+    const kinds = offered.sources.map((s) => [s, repoKind(s, codename, mirrors)] as const);
     const distro = kinds.find(([, k]) => k === 'distro');
     if (distro) return { kind: 'distro', repo: distro[0] };
     unknownOffer ??= kinds.find(([, k]) => k === 'unknown')?.[0];

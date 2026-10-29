@@ -160,7 +160,7 @@ async function askServers(p: Prompter, deps: AskDeps, seed: readonly Host[], pen
     ).trim();
     const address = (await p.text({ message: `Address of ${name} (IP or hostname)`, validate: (v) => (/^\S+$/.test(v.trim()) ? undefined : 'Enter an address without spaces') })).trim();
     const env = await askEnvironment(p);
-    hosts.push({ name, address, env, reachable_from: [], serves: [], allow_private: false });
+    hosts.push({ name, address, env, reachable_from: [], serves: [], allow_private: false, distro_mirrors: [] });
     if (deps.writeCollector && (await p.confirm({ message: `Write the read-only collector for ${name} so you can run it on the server?`, default: true }))) {
       const file = await deps.writeCollector(name);
       p.note(`Copy ${file} to ${name}, read it, then run it there:\n  sudo sh ${path.basename(file)} > ${name}.json\nand bring ${name}.json back.`);

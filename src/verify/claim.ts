@@ -95,12 +95,12 @@ function notInstalledReason(names: string): string {
  * binaries is positively identified as coming from a distro repository (kind `distro`), it is a concern. That includes
  * third-party repositories, local installs, repos that only look like a mirror, and packages apt-cache says nothing about.
  */
-function originConcern(snap: HostSnapshot, source: string, codename: string): string | undefined {
+function originConcern(snap: HostSnapshot, source: string, codename: string, mirrors: readonly string[] = []): string | undefined {
   const problem = originsProblem(snap);
   if (problem === 'failed') return ORIGINS_UNAVAILABLE_MESSAGE;
   if (problem === 'empty') return 'apt package lists are empty, so the package origin is unknown';
   for (const bin of snap.packages.filter((p) => p.source === source)) {
-    const o = classifyOrigin(snap.origins[bin.name], codename);
+    const o = classifyOrigin(snap.origins[bin.name], codename, mirrors);
     if (o.kind === 'distro') continue;
     if (o.kind === 'third_party') return `${bin.name} comes from third-party repository ${o.repo ?? 'unknown'}`;
     if (o.kind === 'local') return `${bin.name} was installed locally, not from a distro repository`;
@@ -134,7 +134,7 @@ interface Judgement {
   source_url: string;
 }
 
-async function judge(snap: HostSnapshot, cve: string, advisories: Advisories, only: string | undefined): Promise<Judgement> {
+async function judge(snap: HostSnapshot, cve: string, advisories: Advisories, only: string | undefined, mirrors: readonly string[] = []): Promise<Judgement> {
   const distro = distroOf(snap.os);
   if (!distro) {
     const os = snap.os.pretty_name || snap.os.id;
@@ -239,7 +239,7 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
     let judgeError: ObservationError | undefined;
     if (stored) {
       try {
-        judged = await judge(stored.snapshot, cve, deps.advisories, sourceFilter(stored.snapshot, claim.package));
+        judged = await judge(stored.snapshot, cve, deps.advisories, sourceFilter(stored.snapshot, claim.package), deps.host.distro_mirrors);
       } catch (err) {
         if (!(err instanceof ObservationError)) throw err;
         judgeError = err;
@@ -277,7 +277,7 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
         reason += ` Note: advisory data is stale (as of ${asOf}).`;
       }
       const codename = distroOf(snap.os)?.codename ?? '';
-      packages = downgradeSafe(packages, (p) => originConcern(snap, p.package, codename));
+      packages = downgradeSafe(packages, (p) => originConcern(snap, p.package, codename, deps.host.distro_mirrors));
       packages = downgradeSafe(packages, (p) => stateConcern(snap, p.package));
       const { state, ageDays } = snapshotFreshness(snap.collected_at, now());
       if (state === 'stale') {

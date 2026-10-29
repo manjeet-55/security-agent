@@ -394,7 +394,7 @@ async function runLearn(args: string[], deps: CliDeps): Promise<number> {
       console.log(`${host.name}: ${stored.snapshot.os.id || 'unknown OS'} is not supported, skipped`);
       continue;
     }
-    const sources = distroSources(stored.snapshot, distro.codename);
+    const sources = distroSources(stored.snapshot, distro.codename, host.distro_mirrors);
     const affected = await advisories.osv.affected(distro.ecosystem, sources);
     for (const q of sources.filter((s) => affected.has(s.name))) await advisories.osv.vulnsFor(distro.ecosystem, q);
     console.log(`${host.name}: ${sources.length} packages checked against ${distro.ecosystem}; ${affected.size} with advisories cached`);

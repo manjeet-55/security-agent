@@ -31,9 +31,9 @@ export interface FixablePackage {
 }
 
 /** The installed packages whose source `distroSources` checks: positively distro, or any when origins can't be known at all (`originsProblem`). */
-function checkedPackages(snap: HostSnapshot, codename: string): InstalledPackage[] {
+function checkedPackages(snap: HostSnapshot, codename: string, mirrors: readonly string[] = []): InstalledPackage[] {
   const originsUnknown = originsProblem(snap) !== undefined;
-  return snap.packages.filter((pkg) => originsUnknown || classifyOrigin(snap.origins[pkg.name], codename).kind === 'distro');
+  return snap.packages.filter((pkg) => originsUnknown || classifyOrigin(snap.origins[pkg.name], codename, mirrors).kind === 'distro');
 }
 
 /**
@@ -42,9 +42,9 @@ function checkedPackages(snap: HostSnapshot, codename: string): InstalledPackage
  * Anything not positively identified as distro (third-party, local, origin unknown) is skipped, unless origins can't be known at
  * all (`originsProblem`: apt-cache policy failed, or the apt lists are empty).
  */
-export function distroSources(snap: HostSnapshot, codename: string): PackageQuery[] {
+export function distroSources(snap: HostSnapshot, codename: string, mirrors: readonly string[] = []): PackageQuery[] {
   const best = new Map<string, string>();
-  for (const pkg of checkedPackages(snap, codename)) {
+  for (const pkg of checkedPackages(snap, codename, mirrors)) {
     const current = best.get(pkg.source);
     if (current === undefined || compareDebVersions(pkg.source_version, current) < 0) best.set(pkg.source, pkg.source_version);
   }
@@ -52,11 +52,11 @@ export function distroSources(snap: HostSnapshot, codename: string): PackageQuer
 }
 
 /** How many distinct packages `distroSources` leaves out because they are not positively identified as distro (third-party, local, origin unknown). */
-export function skippedSourceCount(snap: HostSnapshot, codename: string): number {
+export function skippedSourceCount(snap: HostSnapshot, codename: string, mirrors: readonly string[] = []): number {
   if (originsProblem(snap) !== undefined) return 0;
   const skipped = new Set<string>();
   for (const pkg of snap.packages) {
-    if (classifyOrigin(snap.origins[pkg.name], codename).kind !== 'distro') skipped.add(pkg.name);
+    if (classifyOrigin(snap.origins[pkg.name], codename, mirrors).kind !== 'distro') skipped.add(pkg.name);
   }
   return skipped.size;
 }
@@ -130,7 +130,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
       for (const pkg of snapshot.packages) {
         if (seen.has(pkg.name)) continue;
         seen.add(pkg.name);
-        const o = classifyOrigin(snapshot.origins[pkg.name], snapshot.os.codename);
+        const o = classifyOrigin(snapshot.origins[pkg.name], snapshot.os.codename, subject.host.distro_mirrors);
         if (o.kind === 'distro') continue;
         const origin =
           o.kind === 'third_party'
@@ -155,14 +155,14 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     const distro = distroOf(snapshot.os);
     if (!distro) throw new ObservationError('UNSUPPORTED_DISTRO', `Package advisories are checked for Ubuntu and Debian only; this host runs "${osName}".`);
     requirePackages(snapshot);
-    const sources = distroSources(snapshot, distro.codename);
+    const sources = distroSources(snapshot, distro.codename, subject.host.distro_mirrors);
     if (sources.length === 0) {
       throw new ObservationError(
         'NO_DISTRO_PACKAGES',
         `No installed package could be attributed to ${osName} repositories, so distro advisories could not be checked.`,
       );
     }
-    const skipped = skippedSourceCount(snapshot, distro.codename);
+    const skipped = skippedSourceCount(snapshot, distro.codename, subject.host.distro_mirrors);
     const { value: found, freshness: fresh } = await ctx.advisories.track(() => findFixable(ctx.advisories, distro.ecosystem, sources));
     const { fixable, unfixed, kev_available } = found;
     const problem = originsProblem(snapshot);
