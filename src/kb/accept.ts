@@ -40,7 +40,7 @@ export async function acceptRisk(projectDir: string, input: AcceptInput, now: Da
   checkDate(input.until, now);
 
   const record = await new FindingsStore(projectDir).latest();
-  if (!record) throw new KbError('No scan yet: run secagent scan --no-ai first');
+  if (!record) throw new KbError('No scan yet: run secagent scan first');
   const finding = record.findings.find((f) => f.id === input.findingId);
   if (!finding) {
     const open = record.findings.filter((f) => f.status === 'open').map((f) => f.id);

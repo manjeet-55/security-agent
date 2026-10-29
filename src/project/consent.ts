@@ -47,4 +47,4 @@ export async function hasConsent(projectDir: string, config: ProjectConfig): Pro
 }
 
 export const NOT_CONFIRMED =
-  'The websites and servers in this project.yaml have not been confirmed on this machine, so the AI assistant may not probe them. Ask the person to run `secagent` (or `secagent scan --no-ai`) in this folder once to confirm them; the code checks (groups ["code"]) work without it.';
+  'The websites and servers in this project.yaml have not been confirmed on this machine, so the AI assistant may not probe them. Ask the person to run `secagent` (or `secagent scan`) in this folder once to confirm them; the code checks (groups ["code"]) work without it.';

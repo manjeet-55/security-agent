@@ -43,15 +43,17 @@ describe('main', () => {
     expect(p.hosts[0]).toMatchObject({ name: 'web-1', address: '203.0.113.10', env: 'prod' });
   });
 
-  it('scan without --no-ai explains how to run it', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await main(['scan', '--dir', await tempDir()])).toBe(1);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('secagent scan --no-ai'));
+  it('scan works without --no-ai, and --no-ai is still accepted', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dir = await tempDir();
+    expect(await main(['init', '--dir', dir])).toBe(0);
+    expect(await main(['scan', '--dir', dir, '--only', 'code'])).toBe(0);
+    expect(await main(['scan', '--no-ai', '--dir', dir, '--only', 'code'])).toBe(0);
   });
 
-  it('scan --no-ai before init points at init', async () => {
+  it('scan before init points at init', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await main(['scan', '--no-ai', '--dir', await tempDir()])).toBe(1);
+    expect(await main(['scan', '--dir', await tempDir()])).toBe(1);
     expect(error).toHaveBeenCalledWith(expect.stringContaining('secagent init'));
   });
 
@@ -140,7 +142,7 @@ describe('main', () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});
       expect(await main(['init', '--dir', dir])).toBe(0);
       expect(await main(['report', '--dir', dir])).toBe(1);
-      expect(error).toHaveBeenCalledWith('No scan yet: run secagent scan --no-ai first');
+      expect(error).toHaveBeenCalledWith('No scan yet: run secagent scan first');
     });
   });
 
@@ -150,7 +152,7 @@ describe('main', () => {
     it('start without a terminal says to use init and scan instead', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});
       expect(await main(['start'], { tty: false })).toBe(1);
-      expect(error).toHaveBeenCalledWith('secagent start needs an interactive terminal. In scripts, use secagent init and secagent scan --no-ai.');
+      expect(error).toHaveBeenCalledWith('secagent start needs an interactive terminal. In scripts, use secagent init and secagent scan.');
     });
 
     it('start --dir asks the questions and writes the reports', async () => {
@@ -219,6 +221,28 @@ describe('main', () => {
     expect(await main(['eval', path.join(dir, 'good.yaml'), '--dir', dir])).toBe(0);
     expect(await main(['eval', path.join(dir, 'bad.yaml'), '--dir', dir])).toBe(1);
     expect(log).toHaveBeenCalledWith('DIFF  code-secrets-working-tree@code  expected fixed or accepted_risk, got open');
+  });
+
+  it('--fail-on exits 1 when an open finding is at that severity or above, and rejects a bad severity', async () => {
+    const dir = await tempDir();
+    await repoWith(dir, { 'src/app.ts': `const id = '${FAKE.awsKeyId}';\n` });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await main(['init', '--dir', dir])).toBe(0);
+    expect(await main(['scan', '--only', 'code', '--dir', dir, '--fail-on', 'critical'])).toBe(0);
+    expect(await main(['scan', '--only', 'code', '--dir', dir, '--fail-on', 'high'])).toBe(1);
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/Failing: \d+ open finding\(s\) at high or above/));
+    expect(await main(['scan', '--only', 'code', '--dir', dir, '--fail-on', 'urgent'])).toBe(1);
+  });
+
+  it('mcp setup prints a runnable command and a JSON config for this folder', async () => {
+    const dir = await tempDir();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await main(['mcp', 'setup', '--dir', dir])).toBe(0);
+    const out = log.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(out).toContain('claude mcp add secagent --');
+    expect(out).toContain(`mcp --dir ${dir}`);
+    expect(out).toContain('"mcpServers"');
   });
 
   it('kb needs the index subcommand', async () => {

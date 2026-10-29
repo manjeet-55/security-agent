@@ -30,7 +30,7 @@ export async function evaluate(projectDir: string, expectedFile: string): Promis
   const parsed = FileSchema.safeParse(raw);
   if (!parsed.success) throw new EvalError(`${expectedFile}: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`);
   const record = await new FindingsStore(projectDir).latest();
-  if (!record) throw new EvalError('No scan yet: run secagent scan --no-ai first');
+  if (!record) throw new EvalError('No scan yet: run secagent scan first');
   const actual = new Map(record.findings.map((f) => [f.id, f.status as string]));
   return Object.entries(parsed.data.findings).map(([id, exp]) => {
     const expected = Array.isArray(exp) ? exp : [exp];

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -25,6 +25,7 @@ import { createStyle } from './ui/style.js';
 import { runWizard } from './wizard/run.js';
 import { recordConsent } from './project/consent.js';
 import { runMcpStdio } from './mcp/server.js';
+import { doctor } from './doctor.js';
 import { evaluate, EvalError } from './eval.js';
 import { acceptRisk } from './kb/accept.js';
 import { approveLesson, pendingLessons, rejectLesson } from './kb/write.js';
@@ -34,7 +35,7 @@ import { loadLessons } from './kb/store.js';
 import { loadCheckInstances } from './checks/catalog.js';
 import { CHECK_TYPES } from './checks/registry.js';
 import { GLOBAL_CHECKS_DIR, GLOBAL_KNOWLEDGE_DIR, GLOBAL_LESSONS_DIR, packageVersion } from './paths.js';
-import { SEVERITY_RANK } from './types.js';
+import { SEVERITIES, SEVERITY_RANK, type Severity } from './types.js';
 import { verifyClaim, type ClaimResult } from './verify/claim.js';
 import { loadReportInput } from './report/model.js';
 import { writeReport, type ReportFormat } from './report/write.js';
@@ -58,9 +59,10 @@ Commands:
             --scan-label <label>   name of the network you scan from, e.g. office
             --target <spec>        id=https://host,web|api,env   (repeatable)
             --host <spec>          name=address,env              (repeatable)
-  scan    Run every check against the targets and hosts in project.yaml
+  scan    Run every check against the code, targets and hosts in project.yaml and write the report
             --dir <path>
-            --no-ai                deterministic checks only, no AI triage
+            --no-ai                accepted and ignored: a scan never uses AI
+            --fail-on <severity>   exit 1 when an open finding is at this severity or above (for CI)
             --only <groups>        run only code, web or host (repeatable or comma-separated); the rest of the last scan is kept
   collector  Print the read-only host collector script (stdout) and how to run it (stderr)
             --dir <path>   --host <name>   --out <file>
@@ -79,6 +81,9 @@ Commands:
   kb review  List lessons an AI assistant proposed; approve or reject one
             [--approve <id> --by <name>]   [--reject <id>]   --dir <path>
   kb index   Regenerate knowledge/INDEX.md from the lessons and checks (for maintainers)
+  doctor     Check this machine and project for what usually goes wrong, and say how to fix it
+            --dir <path>   --offline
+  mcp setup  Print the exact command that connects Claude Code or another AI client to this project
   mcp        Serve this project to an AI client (MCP over stdio): run_scan, get_findings, get_report, get_evidence, verify_claim
             --dir <path>
 `;
@@ -160,12 +165,17 @@ async function runScan(args: string[], deps: CliDeps): Promise<number> {
   const { values } = parseArgs({
     args,
     strict: true,
-    options: { dir: { type: 'string', default: '.' }, 'no-ai': { type: 'boolean', default: false }, only: { type: 'string', multiple: true } },
+    options: {
+      dir: { type: 'string', default: '.' },
+      'no-ai': { type: 'boolean', default: false },
+      only: { type: 'string', multiple: true },
+      'fail-on': { type: 'string' },
+    },
   });
-  if (!values['no-ai']) {
-    throw new UsageError(
-      'AI-triaged scans run inside your AI client through the secagent MCP server. For a deterministic scan without AI, run: secagent scan --no-ai',
-    );
+  // --no-ai is accepted for older scripts: the scan never uses AI.
+  const failOn = values['fail-on'];
+  if (failOn !== undefined && !(SEVERITIES as readonly string[]).includes(failOn)) {
+    throw new UsageError(`--fail-on takes ${SEVERITIES.join(', ')} (got "${failOn}")`);
   }
   const dir = path.resolve(values.dir);
   const only = parseGroups(values.only ?? []);
@@ -182,6 +192,13 @@ async function runScan(args: string[], deps: CliDeps): Promise<number> {
   });
   for (const line of formatScan(record)) console.log(line);
   await printReport(dir);
+  if (failOn) {
+    const bad = record.findings.filter((f) => f.status === 'open' && SEVERITY_RANK[f.severity] >= SEVERITY_RANK[failOn as Severity]);
+    if (bad.length > 0) {
+      console.error(`Failing: ${bad.length} open finding(s) at ${failOn} or above (--fail-on ${failOn}).`);
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -190,7 +207,7 @@ const REPORT_FORMATS: readonly ReportFormat[] = ['md', 'pdf', 'html'];
 /** Writes the report of the latest scan and prints where it is. */
 async function printReport(dir: string): Promise<void> {
   const input = await loadReportInput(dir);
-  if (!input) throw new UsageError('No scan yet: run secagent scan --no-ai first');
+  if (!input) throw new UsageError('No scan yet: run secagent scan first');
   const { latest } = await writeReport(dir, input, { formats: REPORT_FORMATS });
   for (const file of latest) console.log(`Report: ${file}`);
 }
@@ -260,7 +277,36 @@ async function runKb(args: string[], deps: CliDeps): Promise<number> {
   return 0;
 }
 
+async function runDoctor(args: string[], deps: CliDeps): Promise<number> {
+  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' }, offline: { type: 'boolean', default: false } } });
+  const lines = await doctor(path.resolve(values.dir), { now: deps.now ?? (() => new Date()), offline: values.offline });
+  const mark = { ok: '✓', warn: '!', fail: '✗' } as const;
+  for (const l of lines) {
+    console.log(`${mark[l.level]} ${l.text}`);
+    if (l.fix) console.log(`    ${l.fix}`);
+  }
+  const fails = lines.filter((l) => l.level === 'fail').length;
+  const warns = lines.filter((l) => l.level === 'warn').length;
+  console.log(fails > 0 ? `\n${fails} problem(s) to fix.` : warns > 0 ? `\nWorks, with ${warns} thing(s) worth a look.` : '\nAll good.');
+  return fails > 0 ? 1 : 0;
+}
+
+function mcpSetup(args: string[]): number {
+  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  const dir = path.resolve(values.dir);
+  const entry = process.argv[1] ? realpathSync(process.argv[1]) : '';
+  const onPath = (process.env.PATH ?? '').split(path.delimiter).some((d) => d !== '' && existsSync(path.join(d, 'secagent')));
+  const command = onPath ? ['secagent'] : [process.execPath, entry];
+  const shown = (xs: string[]) => xs.map((x) => (/\s/.test(x) ? JSON.stringify(x) : x)).join(' ');
+  console.log(`Connect an AI client to ${dir}\n`);
+  console.log(`Claude Code:\n  claude mcp add secagent -- ${shown([...command, 'mcp', '--dir', dir])}\n`);
+  console.log(`Other clients (a JSON config such as .mcp.json):\n${JSON.stringify({ mcpServers: { secagent: { command: command[0], args: [...command.slice(1), 'mcp', '--dir', dir] } } }, null, 2)}\n`);
+  console.log('Then ask your assistant: "Run a security review of this project". It needs the folder set up first (run `secagent` here once).');
+  return 0;
+}
+
 async function runMcp(args: string[], deps: CliDeps): Promise<number> {
+  if (args[0] === 'setup') return mcpSetup(args.slice(1));
   const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
   const dir = path.resolve(values.dir);
   await loadProject(dir);
@@ -427,7 +473,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
   try {
     switch (command) {
       case 'start':
-        if (!isTerminal(deps)) throw new UsageError('secagent start needs an interactive terminal. In scripts, use secagent init and secagent scan --no-ai.');
+        if (!isTerminal(deps)) throw new UsageError('secagent start needs an interactive terminal. In scripts, use secagent init and secagent scan.');
         return await runStart(rest, deps);
       case 'init':
         return await runInit(rest);
@@ -449,6 +495,8 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
         return await runKb(rest, deps);
       case 'accept':
         return await runAccept(rest, deps);
+      case 'doctor':
+        return await runDoctor(rest, deps);
       case 'eval':
         return await runEval(rest);
       case undefined:

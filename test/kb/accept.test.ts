@@ -53,7 +53,7 @@ describe('acceptRisk', () => {
 
   it('needs a scan, and a finding from it', async () => {
     const dir = await makeProject();
-    await expect(acceptRisk(dir, OK, NOW)).rejects.toThrow('No scan yet: run secagent scan --no-ai first');
+    await expect(acceptRisk(dir, OK, NOW)).rejects.toThrow('No scan yet: run secagent scan first');
     await new FindingsStore(dir).write(fixtureRecord());
     await expect(acceptRisk(dir, { ...OK, findingId: 'nope@x' }, NOW)).rejects.toThrow(/No finding "nope@x".*hdr-hsts@portal/s);
   });
