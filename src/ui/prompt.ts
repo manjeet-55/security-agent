@@ -14,6 +14,8 @@ export interface Prompter {
   select<T>(q: { message: string; choices: readonly Choice<T>[]; default?: T }): Promise<T>;
   multiselect<T>(q: { message: string; choices: readonly Choice<T>[]; initial?: readonly T[]; min?: number }): Promise<T[]>;
   note(text: string): void;
+  /** Drops keys typed while nothing was being asked (during a scan, say), so they cannot answer the next question. */
+  discardPending?(): void;
 }
 
 /** The person pressed Ctrl+C, or the input ended. */
@@ -72,6 +74,10 @@ class KeyQueue {
       }));
     if (k.ctrl && k.name === 'c') throw new PromptCancelled();
     return k;
+  }
+
+  clear(): void {
+    this.keys.length = 0;
   }
 
   close(): void {
@@ -241,6 +247,10 @@ export function createTtyPrompter(input: Input, output: NodeJS.WritableStream, s
 
     note(textLine) {
       write(`${textLine}\n`);
+    },
+
+    discardPending() {
+      keys.clear();
     },
 
     close() {

@@ -48,6 +48,8 @@ export const ScanRecordSchema = z.object({
   mode: z.enum(['no-ai', 'agent']),
   /** When the person running the scan confirmed they may test the systems in scope (guided scans). */
   consent_at: z.iso.datetime().optional(),
+  /** The groups this scan ran. Results of the other groups were carried over from an earlier scan. Absent: all of them. */
+  groups_run: z.array(z.enum(['code', 'web', 'host'])).optional(),
   results: z.array(CheckResultSchema),
   findings: z.array(FindingSchema),
   diff: ScanDiffSchema,

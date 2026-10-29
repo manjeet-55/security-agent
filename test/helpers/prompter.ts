@@ -9,6 +9,8 @@ export class ScriptedPrompter implements Prompter {
   readonly asked: string[] = [];
   readonly notes: string[] = [];
   readonly rejected: Array<{ message: string; answer: string; error: string }> = [];
+  /** How often the caller dropped keys typed while it was busy; the scripted answers are unaffected. */
+  discarded = 0;
   private readonly answers: unknown[];
 
   constructor(answers: readonly unknown[]) {
@@ -54,6 +56,10 @@ export class ScriptedPrompter implements Prompter {
 
   note(text: string): void {
     this.notes.push(text);
+  }
+
+  discardPending(): void {
+    this.discarded += 1;
   }
 
   done(): void {

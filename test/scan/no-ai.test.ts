@@ -151,9 +151,19 @@ describe('scanNoAi', () => {
         onResult: (r, group) => events.push(`${group} ${r.check_id}`),
       });
       expect(events[0]).toBe(`plan ${record.results.length}`);
+      // code is checked first, then websites, then servers
+      expect([...new Set(events.slice(1).map((e) => e.split(' ')[0]))]).toEqual(['code', 'web', 'host']);
+      expect(record.groups_run).toEqual(['code', 'web', 'host']);
       expect(events.slice(1)).toHaveLength(record.results.length);
       expect(events.slice(1).map((e) => e.split(' ')[0])).toEqual([...record.results.map((r) => (r.target === 'code' ? 'code' : r.target === 'app' ? 'web' : 'host'))]);
       expect(events.slice(1).map((e) => e.split(' ')[1])).toEqual(record.results.map((r) => r.check_id));
+    });
+
+    it('records which groups it ran, leaving out code when it is turned off', async () => {
+      const dir = await leakyProject();
+      expect((await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T1, only: ['code'] })).groups_run).toEqual(['code']);
+      await setCode(dir, { enabled: false });
+      expect((await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T2 })).groups_run).toEqual(['web', 'host']);
     });
 
     it('only plans the groups it runs', async () => {

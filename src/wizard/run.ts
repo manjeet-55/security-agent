@@ -187,6 +187,7 @@ export async function runWizard(dir: string, deps: WizardDeps): Promise<number> 
       out.write(`\n${style.bold('Report')}\n  Markdown: ${md}\n  PDF:      ${pdf}\n\n`);
 
       for (;;) {
+        prompter.discardPending?.();
         const next = await prompter.select({
           message: 'What next?',
           choices: [

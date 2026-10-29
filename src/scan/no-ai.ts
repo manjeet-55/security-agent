@@ -61,10 +61,11 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
   };
 
   const groups = new Set<ScanGroup>(deps.only && deps.only.length > 0 ? deps.only : SCAN_GROUPS);
+  const runCode = groups.has('code') && project.code.enabled;
   const subjects: Array<{ group: ScanGroup; subject: CheckSubject }> = [
+    ...(runCode ? [{ group: 'code' as const, subject: { kind: 'code' as const, dir: projectDir } }] : []),
     ...(groups.has('web') ? project.targets.map((target) => ({ group: 'web' as const, subject: { kind: 'target' as const, target } })) : []),
     ...(groups.has('host') ? project.hosts.map((host) => ({ group: 'host' as const, subject: { kind: 'host' as const, host } })) : []),
-    ...(groups.has('code') && project.code.enabled ? [{ group: 'code' as const, subject: { kind: 'code' as const, dir: projectDir } }] : []),
   ];
   deps.onPlan?.(subjects.reduce((n, s) => n + applicableInstances(instances, s.subject).length, 0));
   const results: CheckResult[] = [];
@@ -91,6 +92,7 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
     scan_label: project.network.scan_label,
     mode: 'no-ai',
     ...(deps.consentAt ? { consent_at: deps.consentAt.toISOString() } : {}),
+    groups_run: SCAN_GROUPS.filter((g) => groups.has(g) && (g !== 'code' || runCode)),
     results: allResults,
     findings: allFindings,
     diff: diffScans(previous, { results: allResults, findings: allFindings }),

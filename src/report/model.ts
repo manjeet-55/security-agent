@@ -107,14 +107,30 @@ function resultFor(record: ScanRecord, f: Finding): CheckResult | undefined {
   return record.results.find((r) => r.check_id === f.check_id && r.target === f.target);
 }
 
+const EVIDENCE_TIME = /^ev_(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})\d{2}Z_/;
+
+/** When an evidence id says it was recorded, in the report's time format. */
+function evidenceTime(id: string): string | undefined {
+  const m = EVIDENCE_TIME.exec(id);
+  return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]} UTC` : undefined;
+}
+
+/** Areas with results that this scan did not run: a partial scan keeps the other areas' results from earlier scans. */
+function earlierAreas(input: ReportInput): Area[] {
+  const ran = input.record.groups_run;
+  if (!ran) return [];
+  return AREAS.filter((a) => !ran.includes(a) && input.record.results.some((r) => areaOfTarget(input, r.check_id, r.target) === a));
+}
+
 function atAGlance(input: ReportInput): Block[] {
+  const earlier = earlierAreas(input);
   const rows: string[][] = [];
   for (const area of AREAS) {
     const results = input.record.results.filter((r) => areaOfTarget(input, r.check_id, r.target) === area);
     if (results.length === 0) continue;
     const issues = input.record.findings.filter((f) => f.status === 'open' && areaOfTarget(input, f.check_id, f.target) === area).length;
     const gaps = results.filter((r) => r.outcome === 'unverifiable' || r.outcome === 'error').length;
-    rows.push([AREA_LABEL[area], String(results.length), String(issues), String(gaps)]);
+    rows.push([`${AREA_LABEL[area]}${earlier.includes(area) ? ' (earlier scan)' : ''}`, String(results.length), String(issues), String(gaps)]);
   }
   return rows.length === 0 ? [] : [{ kind: 'heading', level: 2, text: 'At a glance' }, { kind: 'table', head: ['Area', 'Checks', 'Issues', 'Could not check'], rows }];
 }
@@ -198,6 +214,15 @@ function about(input: ReportInput): Block[] {
   if (scanned.has('code')) lines.push("Code: this project's folder");
   if (scanned.has('web') && project.targets.length > 0) lines.push(`Websites and APIs: ${project.targets.map((t) => `${t.url} (${t.env})`).join(', ')}`);
   if (scanned.has('host') && project.hosts.length > 0) lines.push(`Servers: ${project.hosts.map((h) => `${h.name} (${h.address}, ${h.env})`).join(', ')}`);
+  const earlier = earlierAreas(input);
+  if (earlier.length > 0) {
+    const times = record.results
+      .filter((r) => earlier.includes(areaOfTarget(input, r.check_id, r.target)))
+      .map((r) => evidenceTime(r.evidence_id))
+      .filter((t): t is string => t !== undefined)
+      .sort();
+    lines.push(`Not re-checked in this scan: ${earlier.map((a) => AREA_LABEL[a]).join(', ')}. Their results are from an earlier scan${times[0] ? ` (${times[0]})` : ''} and may be out of date.`);
+  }
   lines.push(record.consent_at ? `Scope confirmed by the person running the scan on ${formatTime(record.consent_at)}.` : 'Run from the command line.');
   lines.push(
     'Method: read-only requests to the listed systems and local reads of this folder; no AI, so the same inputs give the same result.',

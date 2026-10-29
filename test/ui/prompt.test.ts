@@ -113,6 +113,17 @@ describe('multiselect', () => {
   });
 });
 
+describe('discardPending', () => {
+  it('drops keys typed before the question was shown, so a stray Enter during a scan does not answer it', async () => {
+    const t = terminal();
+    t.type(ENTER, ENTER);
+    await new Promise((r) => setImmediate(r));
+    t.prompter.discardPending?.();
+    t.type(DOWN, ENTER);
+    expect(await t.prompter.select({ message: 'Pick', choices: CHOICES })).toBe('b');
+  });
+});
+
 describe('cancelling', () => {
   it('Ctrl+C rejects with PromptCancelled and gives the terminal back', async () => {
     const t = terminal();

@@ -51,6 +51,8 @@ describe('runWizard', () => {
     expect(out).toContain(path.join(reportsDir(dir), 'latest.pdf'));
     expect(out).toContain('Fix first');
     expect(out).not.toContain(FAKE.awsKeyId);
+    // keys typed during the scan must not answer the question that follows it
+    expect(prompter.discarded).toBe(1);
 
     expect(existsSync(path.join(reportsDir(dir), 'latest.pdf'))).toBe(true);
     expect(readFileSync(path.join(reportsDir(dir), 'latest.md'), 'utf8')).toContain('src/app.ts:2 aws-access-key-id');

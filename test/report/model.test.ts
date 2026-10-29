@@ -129,6 +129,25 @@ describe('buildReport', () => {
     expect(first.endsWith('— nginx: location ~ /\\. { deny all; }')).toBe(true);
   });
 
+  it('says which areas a partial scan did not re-check, and when their results are from', () => {
+    const record = fixtureRecord({ groups_run: ['code'] });
+    const blocks = build({ groups_run: ['code'] });
+    const glance = section(blocks, 'At a glance')[0] as Extract<Block, { kind: 'table' }>;
+    expect(glance.rows.map((r) => r[0])).toEqual(['Code', 'Websites and APIs (earlier scan)', 'Servers (earlier scan)']);
+    const about = (section(blocks, 'About this scan')[0] as Extract<Block, { kind: 'list' }>).items.map(text);
+    expect(about).toContain('Not re-checked in this scan: Websites and APIs, Servers. Their results are from an earlier scan (2026-10-28 10:00 UTC) and may be out of date.');
+    expect(record.groups_run).toEqual(['code']);
+  });
+
+  it('says nothing about earlier scans when every area with results was checked', () => {
+    for (const groups_run of [undefined, ['code', 'web', 'host'] as Array<'code' | 'web' | 'host'>]) {
+      const blocks = build(groups_run ? { groups_run } : {});
+      const glance = section(blocks, 'At a glance')[0] as Extract<Block, { kind: 'table' }>;
+      expect(glance.rows.map((r) => r[0])).toEqual(['Code', 'Websites and APIs', 'Servers']);
+      expect((section(blocks, 'About this scan')[0] as Extract<Block, { kind: 'list' }>).items.map(text).join('\n')).not.toContain('Not re-checked');
+    }
+  });
+
   it('says so when nothing is open', () => {
     const record = fixtureRecord();
     const findings = section(build({ findings: record.findings.filter((f) => f.status !== 'open') }), 'Findings');
