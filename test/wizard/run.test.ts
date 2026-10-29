@@ -137,4 +137,19 @@ describe('runWizard', () => {
     second.prompter.done();
     expect(second.text()).toContain('Needs attention');
   });
+
+  it('the end menu can accept a risk (the scan then runs again and lists it) and review a proposed lesson', async () => {
+    const dir = await leakyRepo();
+    await writeFiles(dir, {
+      '.secagent/knowledge/lessons/idea.md': '---\nid: idea\ntitle: A proposed lesson\nadded_by: learn-2026-10-28\nsource_url: https://owasp.org/x\nquote: some exact sentence from the page\nretrieved_at: "2026-10-28"\nreview: pending\n---\nBody of the lesson that explains what to do next time.\n',
+    });
+    const id = 'code-secrets-working-tree@code';
+    const { prompter, deps, text } = setup([undefined, ['code'], 'accept', id, 'Priya', 'rotating the key next sprint', '2026-12-15', 'lessons', 'approve', 'Priya', 'exit']);
+    expect(await runWizard(dir, deps)).toBe(0);
+    prompter.done();
+    expect(text()).toContain(`Accepted ${id} until 2026-12-15`);
+    expect(text()).toContain('Approved.');
+    expect(readFileSync(path.join(reportsDir(dir), 'latest.md'), 'utf8')).toContain('## Accepted risks');
+  });
 });
+

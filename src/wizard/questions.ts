@@ -6,6 +6,7 @@ import { validateProject, type Host, type ProjectConfig, type Target } from '../
 import type { StackDetection } from '../project/stack.js';
 import type { ScanGroup } from '../scan/no-ai.js';
 import type { Choice, Prompter } from '../ui/prompt.js';
+import { suggestUrls } from './suggest.js';
 
 export interface WizardPlan {
   /** Validated settings; written by runWizard, not here. */
@@ -28,6 +29,8 @@ export interface AskDeps {
   readFile?: (file: string) => Promise<string>;
   /** Writes the read-only collector for a host and returns where; without it the wizard does not offer to. */
   writeCollector?: (host: string) => Promise<string>;
+  /** Addresses the project mentions as its deployed site (default: read from package.json, CNAME and .env files). */
+  suggest?: (dir: string) => Promise<string[]>;
 }
 
 const DEFAULT_GROUPS: ScanGroup[] = ['code'];
@@ -112,7 +115,16 @@ async function askWebsites(p: Prompter, deps: AskDeps, seed: readonly Target[]):
     if (!more) more = await p.confirm({ message: 'Add another website or API?', default: false });
     if (!more) return targets;
     more = false;
-    const url = (await p.text({ message: 'Address of the deployed website or API (https://...)', validate: (v) => validateUrl(v.trim(), targets) })).trim();
+    const known = new Set(targets.map((t) => t.url));
+    const ideas = targets.length === 0 ? (await (deps.suggest ?? suggestUrls)(deps.dir)).filter((u) => !known.has(u)) : [];
+    const picked =
+      ideas.length > 0
+        ? await p.select({ message: 'I found these addresses in the project. Which one is deployed?', choices: [...ideas.map((u) => ({ value: u, label: u })), { value: '', label: 'None of these: type the address' }], default: ideas[0] as string })
+        : '';
+    const url =
+      picked !== ''
+        ? picked
+        : (await p.text({ message: 'Address of the deployed website or API (https://...)', validate: (v) => validateUrl(v.trim(), targets) })).trim();
     const internal = await internalAddresses(p, url, resolve);
     const host = stripBrackets(new URL(url).hostname);
     if (internal.length > 0) {

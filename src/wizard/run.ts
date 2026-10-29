@@ -5,7 +5,9 @@ import type { Advisories } from '../advisories/types.js';
 import { CatalogError } from '../checks/catalog.js';
 import { ObservationError } from '../checks/errors.js';
 import { repoState } from '../code/git.js';
+import { acceptRisk } from '../kb/accept.js';
 import { KbError } from '../kb/lesson.js';
+import { approveLesson, pendingLessons, rejectLesson } from '../kb/write.js';
 import type { ScanRecord } from '../findings/schema.js';
 import { makeCollector } from '../host/collector.js';
 import { SnapshotStore } from '../host/store.js';
@@ -141,6 +143,50 @@ async function writeCollectorFile(dir: string, host: string): Promise<string> {
   return file;
 }
 
+/** Asks which finding, who, why and until when; true when the risk was accepted (the scan then runs again to show it). */
+async function acceptFromMenu(dir: string, input: ReportInput, open: ScanRecord['findings'], deps: WizardDeps, now: () => Date): Promise<boolean> {
+  const { prompter, out } = deps;
+  const findingId = await prompter.select({ message: 'Which finding?', choices: open.map((f) => ({ value: f.id, label: `${f.severity.toUpperCase()}: ${f.title}`, hint: whereOf(input.project, f.target) })) });
+  const owner = await prompter.text({ message: 'Your name (who accepts this risk)', validate: (v) => (v.trim() === '' ? 'Enter a name' : undefined) });
+  const reason = await prompter.text({ message: 'Why is it acceptable for now? (at least 10 characters)', validate: (v) => (v.trim().length < 10 ? 'Say a little more' : undefined) });
+  const soon = new Date(now().getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+  const until = (await prompter.text({ message: 'Until when? (YYYY-MM-DD, at most a year)', default: soon })).trim();
+  try {
+    const entry = await acceptRisk(dir, { findingId, owner, reason, until }, now());
+    out.write(`Accepted ${entry.finding_id} until ${entry.expires}. Scanning again to update the report.\n`);
+    return true;
+  } catch (e) {
+    if (!(e instanceof KbError)) throw e;
+    out.write(`${e.message}\n`);
+    return false;
+  }
+}
+
+/** Shows each lesson an AI assistant proposed, with its source and quote, and lets the person approve, reject or skip it. */
+async function reviewLessons(dir: string, deps: WizardDeps, now: () => Date): Promise<void> {
+  const { prompter, out } = deps;
+  for (const l of await pendingLessons(dir)) {
+    out.write(`\n${l.title}\n  source: ${l.source_url ?? '-'}\n  quote:  "${l.quote ?? ''}"\n  ${l.body.split('\n')[0]?.slice(0, 240) ?? ''}\n`);
+    const choice = await prompter.select({
+      message: `${l.id}:`,
+      choices: [
+        { value: 'skip' as const, label: 'Decide later' },
+        { value: 'approve' as const, label: 'Approve (it can then back lowering a risk)' },
+        { value: 'reject' as const, label: 'Reject and delete' },
+      ],
+      default: 'skip' as const,
+    });
+    if (choice === 'approve') {
+      const by = await prompter.text({ message: 'Your name', validate: (v) => (v.trim() === '' ? 'Enter a name' : undefined) });
+      await approveLesson(dir, l.id, by, now());
+      out.write('Approved.\n');
+    } else if (choice === 'reject') {
+      await rejectLesson(dir, l.id);
+      out.write('Rejected and removed.\n');
+    }
+  }
+}
+
 /**
  * The guided scan: asks what to check, saves the answers, scans with live progress, writes the Markdown and PDF report and shows
  * the result. Returns the exit code: 0 done, 130 cancelled, 1 for a problem with the settings or the scan.
@@ -190,20 +236,33 @@ export async function runWizard(dir: string, deps: WizardDeps): Promise<number> 
       const [md, pdf, html] = latest;
       out.write(`\n${style.bold('Report')}\n  Markdown: ${md}\n  PDF:      ${pdf}\n  HTML:     ${html}\n\n`);
 
-      for (;;) {
+      let rescan = false;
+      while (!rescan) {
         prompter.discardPending?.();
+        const open = record.findings.filter((f) => f.status === 'open');
+        const pending = await pendingLessons(dir).catch(() => []);
         const next = await prompter.select({
           message: 'What next?',
           choices: [
             { value: 'open' as const, label: 'Open the PDF report' },
+            { value: 'html' as const, label: 'Open the HTML report' },
+            ...(open.length > 0 ? [{ value: 'accept' as const, label: 'Accept the risk of a finding for now', hint: `${open.length} open` }] : []),
+            ...(pending.length > 0 ? [{ value: 'lessons' as const, label: 'Review lessons an AI assistant proposed', hint: `${pending.length} waiting` }] : []),
             { value: 'again' as const, label: 'Scan again' },
             { value: 'exit' as const, label: 'Exit' },
           ],
           default: 'exit' as const,
         });
         if (next === 'exit') return 0;
-        if (next === 'again') break;
-        if (pdf && !(await openFile(pdf))) out.write(`Could not open it from here: ${pdf}\n`);
+        if (next === 'again') rescan = true;
+        else if (next === 'open' || next === 'html') {
+          const file = next === 'open' ? pdf : html;
+          if (file && !(await openFile(file))) out.write(`Could not open it from here: ${file}\n`);
+        } else if (next === 'accept') {
+          rescan = await acceptFromMenu(dir, input, open, deps, now);
+        } else {
+          await reviewLessons(dir, deps, now);
+        }
       }
     }
   } catch (e) {
