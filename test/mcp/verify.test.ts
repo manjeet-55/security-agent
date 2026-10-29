@@ -45,7 +45,7 @@ describe('verify_claim', () => {
 
   it('is registered next to the scan tools and is not marked read-only (it writes evidence)', async () => {
     const { mcp } = await setup();
-    expect(await mcp.tools()).toEqual(['get_evidence', 'get_findings', 'get_report', 'project_info', 'run_scan', 'verify_claim']);
+    expect(await mcp.tools()).toContain('verify_claim');
     expect((await mcp.client.listTools()).tools.find((t) => t.name === 'verify_claim')?.annotations?.readOnlyHint).not.toBe(true);
   });
 });

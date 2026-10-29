@@ -174,6 +174,13 @@ describe('main', () => {
     });
   });
 
+  it('kb needs the index subcommand', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await main(['kb'])).toBe(1);
+    expect(await main(['kb', 'nope'])).toBe(1);
+    expect(error).toHaveBeenCalledWith('Usage: secagent kb index');
+  });
+
   it('rejects unknown commands and unknown flags', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await main(['nope'])).toBe(1);

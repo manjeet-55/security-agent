@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { PACKAGE_ROOT } from '../paths.js';
 import { ServerState, type ServerOptions } from './state.js';
+import { registerKbTools } from './tools/kb.js';
 import { registerProjectTools } from './tools/project.js';
 import { registerReadTools } from './tools/read.js';
 import { registerScanTools } from './tools/scan.js';
@@ -16,6 +17,7 @@ export const SERVER_INSTRUCTIONS = [
   '- A finding is open, fixed or unverifiable only as the latest scan says. unverifiable means unknown, not safe.',
   '- Never say something is fixed or safe without a new scan that shows it. After a fix, call run_scan again.',
   '- Cite evidence ids (get_evidence) for what you report.',
+  '- kb_search and kb_read give you lessons from past remediations (start with kb_read INDEX). Knowledge marked pending may add a finding or raise a severity; only approved knowledge can back calling a finding a false positive or lowering its severity.',
   '- Secret values are never available to you and you must not ask for them: findings give file, line, pattern and a fingerprint only. Tell the person to rotate any credential reported.',
   '- You cannot change which websites or servers are probed; only a person editing .secagent/project.yaml can.',
 ].join('\n');
@@ -35,6 +37,7 @@ export function createMcpServer(opts: ServerOptions): { server: McpServer; state
   registerScanTools(server, state);
   registerReadTools(server, state);
   registerVerifyTools(server, state);
+  registerKbTools(server, state);
   return { server, state };
 }
 

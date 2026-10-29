@@ -47,6 +47,10 @@ Run `secagent` again in the same folder to scan again, change the answers, or st
 
 A verdict, what to fix first, and for every finding: what was found, why it matters, how to fix it (with advice for your stack), and a link to learn more. Checks that could not run are listed under "Could not verify" and are never counted as passed. Secret values are never printed, only the file, the line and a short fingerprint. A scan limited with `--only` marks the areas it did not re-check as coming from an earlier scan.
 
+## Knowledge base
+
+`knowledge/lessons/` holds short, sourced lessons from real remediations (for example: distro backports make version-banner CVE claims unreliable, a timeout from the wrong network proves nothing, third-party repositories are not covered by automatic updates). Each lesson is reviewed (`review: approved`) or not yet (`pending`). A project can add its own under `.secagent/knowledge/lessons/`, and records accepted risks in `.secagent/knowledge/exceptions.yaml` (owner, reason, expiry). An AI client reads them with `kb_search` and `kb_read`; `knowledge/INDEX.md` is the generated overview (`secagent kb index`).
+
 ## Use it from an AI client
 
 `secagent mcp` serves the project to Claude Code, Cursor or any MCP client, so an assistant can run the scan, read the findings and report, and judge a scanner's CVE claim, while secagent stays the one that decides every status. The assistant cannot change what gets probed. Setup and details: `docs/mcp.md`.
@@ -70,6 +74,7 @@ claude mcp add secagent -- secagent mcp --dir /path/to/your-project
 | `secagent verify --host <name> --cve <id>` | Is a scanner's CVE claim true for this host? |
 | `secagent learn` | Refresh CISA KEV and package advisories |
 | `secagent mcp [--dir]` | Serve the project to an AI client over MCP (stdio) |
+| `secagent kb index` | Regenerate `knowledge/INDEX.md` (maintainers) |
 
 `.secagent/project.yaml` lists the only websites and servers secagent will touch; the code checks read the project folder and its git history.
 

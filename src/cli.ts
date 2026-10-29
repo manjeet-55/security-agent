@@ -24,6 +24,12 @@ import { createTtyPrompter, type Prompter } from './ui/prompt.js';
 import { createStyle } from './ui/style.js';
 import { runWizard } from './wizard/run.js';
 import { runMcpStdio } from './mcp/server.js';
+import { renderIndex } from './kb/index-md.js';
+import { KbError } from './kb/lesson.js';
+import { loadLessons } from './kb/store.js';
+import { loadCheckInstances } from './checks/catalog.js';
+import { CHECK_TYPES } from './checks/registry.js';
+import { GLOBAL_CHECKS_DIR, GLOBAL_KNOWLEDGE_DIR, GLOBAL_LESSONS_DIR } from './paths.js';
 import { SEVERITY_RANK } from './types.js';
 import { verifyClaim, type ClaimResult } from './verify/claim.js';
 import { loadReportInput } from './report/model.js';
@@ -61,6 +67,7 @@ Commands:
             --dir <path>
   report     Re-render the report of the latest scan (.secagent/reports/latest.*)
             --dir <path>
+  kb index   Regenerate knowledge/INDEX.md from the lessons and checks (for maintainers)
   mcp        Serve this project to an AI client (MCP over stdio): run_scan, get_findings, get_report, get_evidence, verify_claim
             --dir <path>
 `;
@@ -173,6 +180,15 @@ async function printReport(dir: string): Promise<void> {
   if (!input) throw new UsageError('No scan yet: run secagent scan --no-ai first');
   const { latest } = await writeReport(dir, input, { formats: REPORT_FORMATS });
   for (const file of latest) console.log(`Report: ${file}`);
+}
+
+async function runKb(args: string[]): Promise<number> {
+  if (args.length !== 1 || args[0] !== 'index') throw new UsageError('Usage: secagent kb index');
+  const text = renderIndex(await loadLessons({ global: GLOBAL_LESSONS_DIR }), await loadCheckInstances(GLOBAL_CHECKS_DIR, CHECK_TYPES));
+  const file = path.join(GLOBAL_KNOWLEDGE_DIR, 'INDEX.md');
+  await writeFile(file, text, 'utf8');
+  console.log(`Wrote ${file}`);
+  return 0;
 }
 
 async function runMcp(args: string[], deps: CliDeps): Promise<number> {
@@ -360,6 +376,8 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
         return await runReport(rest);
       case 'mcp':
         return await runMcp(rest, deps);
+      case 'kb':
+        return await runKb(rest);
       case undefined:
         if (isTerminal(deps)) return await runStart(rest, deps);
         console.log(USAGE);
@@ -379,6 +397,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
       e instanceof ProjectConfigError ||
       e instanceof CatalogError ||
       e instanceof ScopeError ||
+      e instanceof KbError ||
       e instanceof ObservationError
     ) {
       console.error(e.message);

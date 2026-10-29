@@ -39,12 +39,15 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 | `get_report` | The latest report as Markdown, plus the PDF path |
 | `get_evidence` | One evidence record by id |
 | `verify_claim` | Is a third-party scanner's CVE claim true for a host? Uses the host snapshot and the distro's own advisories |
+| `kb_search` | Keyword search over the knowledge base: lessons from past remediations (global and the project's own) and the check catalog. Hits say whether they are approved or pending review. |
+| `kb_read` | One lesson or check by id; `INDEX` is the one-line-per-entry overview, `notes` the project's notes, `exceptions` its accepted risks |
 
 ## What the assistant can and cannot do
 
 - It cannot change which websites or servers are probed. No tool edits `.secagent/project.yaml`; only you can.
 - Every probe still goes through the scope guard, and websites on private addresses need `allow_private` in `project.yaml`.
 - It never receives secret values. Findings carry file, line, pattern and a fingerprint; evidence leaves out page bodies. Tell it to have the credentials rotated, not to read them.
+- Knowledge marked pending can add a finding or raise a severity; only approved knowledge can back calling a finding a false positive or lowering its severity.
 - Statuses come from the scan. The server tells the assistant that `unverifiable` means unknown, and that nothing is fixed until a new scan says so.
 - A scan started this way is recorded as such, and the report says "Run by an AI assistant through the MCP server".
 
