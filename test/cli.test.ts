@@ -174,6 +174,40 @@ describe('main', () => {
     });
   });
 
+  describe('accept', () => {
+    async function scanned(): Promise<string> {
+      const dir = await tempDir();
+      await repoWith(dir, { 'src/app.ts': `// config\nconst id = '${FAKE.awsKeyId}';\n` });
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(await main(['init', '--dir', dir])).toBe(0);
+      expect(await main(['scan', '--no-ai', '--only', 'code', '--dir', dir], { now: () => FIXED_NOW })).toBe(0);
+      vi.restoreAllMocks();
+      return dir;
+    }
+    const args = (dir: string, extra: string[] = []) => ['accept', 'code-secrets-working-tree@code', '--dir', dir, '--owner', 'dev-lead', '--reason', 'rotating the key next sprint', '--until', '2026-12-31', ...extra];
+
+    it('records the decision, and the next scan reports the finding as an accepted risk in the report', async () => {
+      const dir = await scanned();
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(await main(args(dir), { now: () => FIXED_NOW })).toBe(0);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('until 2026-12-31'));
+      expect(await main(['scan', '--no-ai', '--only', 'code', '--dir', dir], { now: () => FIXED_NOW })).toBe(0);
+      const md = readFileSync(path.join(dir, '.secagent', 'reports', 'latest.md'), 'utf8');
+      expect(md).toContain('## Accepted risks');
+      expect(md).toContain('dev-lead');
+      expect(md).toContain('rotating the key next sprint');
+    });
+
+    it('says what is wrong instead of a stack trace, and exits 1', async () => {
+      const dir = await scanned();
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(await main(args(dir, ['--until', '2020-01-01']), { now: () => FIXED_NOW })).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('after today'));
+      expect(await main(['accept', '--dir', dir])).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('Usage: secagent accept'));
+    });
+  });
+
   it('kb needs the index subcommand', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await main(['kb'])).toBe(1);

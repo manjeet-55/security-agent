@@ -5,6 +5,7 @@ import type { Advisories } from '../advisories/types.js';
 import { CatalogError } from '../checks/catalog.js';
 import { ObservationError } from '../checks/errors.js';
 import { repoState } from '../code/git.js';
+import { KbError } from '../kb/lesson.js';
 import type { ScanRecord } from '../findings/schema.js';
 import { makeCollector } from '../host/collector.js';
 import { SnapshotStore } from '../host/store.js';
@@ -208,7 +209,7 @@ export async function runWizard(dir: string, deps: WizardDeps): Promise<number> 
       out.write('\nCancelled.\n');
       return 130;
     }
-    if (e instanceof ProjectConfigError || e instanceof ScopeError || e instanceof CatalogError || e instanceof ObservationError) {
+    if (e instanceof ProjectConfigError || e instanceof ScopeError || e instanceof CatalogError || e instanceof ObservationError || e instanceof KbError) {
       out.write(`${style.red(e.message)}\n`);
       return 1;
     }

@@ -10,6 +10,7 @@ import { diffScans } from '../findings/diff.js';
 import { resultsToFindings } from '../findings/from-results.js';
 import type { ScanRecord } from '../findings/schema.js';
 import { FindingsStore } from '../findings/store.js';
+import { loadExceptions } from '../kb/exceptions.js';
 import { SnapshotStore, type SnapshotReader } from '../host/store.js';
 import { ScopedNet, type NetClient } from '../net/scoped.js';
 import { GLOBAL_CHECKS_DIR } from '../paths.js';
@@ -79,7 +80,7 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
   const previous = await store.latest();
   const scannedAt = now();
   const byId = new Map(instances.map((i) => [i.id, i] as const));
-  const findings = resultsToFindings(results, byId, previous, project.stack, scannedAt);
+  const findings = resultsToFindings(results, byId, previous, project.stack, scannedAt, await loadExceptions(projectDir));
 
   // A partial scan says nothing about the groups it skipped: they stay as the last scan left them.
   const ranKinds = new Set<SubjectKind>([...groups].flatMap((g) => GROUP_KINDS[g]));

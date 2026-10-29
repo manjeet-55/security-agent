@@ -51,6 +51,16 @@ A verdict, what to fix first, and for every finding: what was found, why it matt
 
 `knowledge/lessons/` holds short, sourced lessons from real remediations (for example: distro backports make version-banner CVE claims unreliable, a timeout from the wrong network proves nothing, third-party repositories are not covered by automatic updates). Each lesson is reviewed (`review: approved`) or not yet (`pending`). A project can add its own under `.secagent/knowledge/lessons/`, and records accepted risks in `.secagent/knowledge/exceptions.yaml` (owner, reason, expiry). An AI client reads them with `kb_search` and `kb_read`; `knowledge/INDEX.md` is the generated overview (`secagent kb index`).
 
+## Accepting a risk
+
+Some findings cannot be fixed today. A person can accept one for a limited time:
+
+```bash
+secagent accept hdr-csp@app --owner "Priya" --reason "CSP rolls out with the new proxy" --until 2026-12-15
+```
+
+It is written to `.secagent/knowledge/exceptions.yaml` (owner, reason, last day; at most a year ahead). The next scan reports that finding as an accepted risk in its own report section, and the verdict says so rather than "no issues". It counts as open again the day after the date passes, and only open findings can be accepted. An AI assistant cannot accept a risk for you.
+
 ## Use it from an AI client
 
 `secagent mcp` serves the project to Claude Code, Cursor or any MCP client, so an assistant can run the scan, read the findings and report, and judge a scanner's CVE claim, while secagent stays the one that decides every status. The assistant cannot change what gets probed. Setup and details: `docs/mcp.md`.
@@ -74,6 +84,7 @@ claude mcp add secagent -- secagent mcp --dir /path/to/your-project
 | `secagent verify --host <name> --cve <id>` | Is a scanner's CVE claim true for this host? |
 | `secagent learn` | Refresh CISA KEV and package advisories |
 | `secagent mcp [--dir]` | Serve the project to an AI client over MCP (stdio) |
+| `secagent accept <finding-id> --owner --reason --until` | Accept an open finding's risk until a date |
 | `secagent kb index` | Regenerate `knowledge/INDEX.md` (maintainers) |
 
 `.secagent/project.yaml` lists the only websites and servers secagent will touch; the code checks read the project folder and its git history.

@@ -139,6 +139,28 @@ describe('tools', () => {
     });
   });
 
+  describe('accepted risks', () => {
+    it('are reported with who accepted them and until when, and are not open', async () => {
+      const dir = await leakyProject();
+      await writeFile(
+        path.join(dir, '.secagent', 'knowledge', 'exceptions.yaml'),
+        'exceptions:\n  - finding_id: code-secrets-working-tree@code\n    owner: dev-lead\n    reason: rotating the key next sprint\n    expires: "2026-12-31"\n',
+      );
+      const mcp = await connectMcp({ projectDir: dir, now: NOW });
+      const r = await mcp.call('run_scan', { groups: ['code'] });
+      expect(r.json.counts.by_status).toMatchObject({ accepted_risk: 1, open: 2 });
+      const accepted = (await mcp.call('get_findings', { status: 'accepted_risk' })).json.findings;
+      expect(accepted).toHaveLength(1);
+      expect(accepted[0]).toMatchObject({ id: 'code-secrets-working-tree@code', exception: { owner: 'dev-lead', expires: '2026-12-31', expired: false } });
+      expect(r.json.verdict.text).toContain('2 high-priority');
+    });
+
+    it('there is no tool that can accept one: only a person editing the file or running secagent accept can', async () => {
+      const mcp = await connectMcp({ projectDir: await leakyProject(), now: NOW });
+      expect((await mcp.tools()).filter((n) => /accept|exception/i.test(n))).toEqual([]);
+    });
+  });
+
   describe('get_findings', () => {
     it('says to scan first when there is no scan', async () => {
       const mcp = await connectMcp({ projectDir: await leakyProject(), now: NOW });

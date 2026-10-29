@@ -16,6 +16,7 @@ export const SERVER_INSTRUCTIONS = [
   '- Call project_info first, then run_scan, before saying anything about the project\'s security state.',
   '- A finding is open, fixed or unverifiable only as the latest scan says. unverifiable means unknown, not safe.',
   '- Never say something is fixed or safe without a new scan that shows it. After a fix, call run_scan again.',
+  '- accepted_risk means a person accepted the risk until a date (see the exception). It is not fixed, and you cannot accept a risk for them: only a person editing exceptions.yaml or running secagent accept can.',
   '- Cite evidence ids (get_evidence) for what you report.',
   '- kb_search and kb_read give you lessons from past remediations (start with kb_read INDEX). Knowledge marked pending may add a finding or raise a severity; only approved knowledge can back calling a finding a false positive or lowering its severity.',
   '- Secret values are never available to you and you must not ask for them: findings give file, line, pattern and a fingerprint only. Tell the person to rotate any credential reported.',

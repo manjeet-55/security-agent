@@ -36,6 +36,19 @@ export async function loadExceptions(projectDir: string): Promise<RiskException[
   return parsed.data.exceptions ?? [];
 }
 
+/**
+ * The exception that applies to a finding today: an active one if there is one, else the latest expired one (so the report can say
+ * an earlier decision lapsed). `expired` tells which.
+ */
+export function exceptionFor(list: readonly RiskException[], findingId: string, now: Date): (RiskException & { expired: boolean }) | undefined {
+  const today = now.toISOString().slice(0, 10);
+  const mine = list.filter((x) => x.finding_id === findingId);
+  const active = mine.find((x) => today <= x.expires);
+  if (active) return { ...active, expired: false };
+  const latest = [...mine].sort((a, b) => b.expires.localeCompare(a.expires))[0];
+  return latest ? { ...latest, expired: true } : undefined;
+}
+
 /** The entry covering this finding today, if any. An exception holds through its expires date. */
 export function activeException(list: readonly RiskException[], findingId: string, now: Date): RiskException | undefined {
   const today = now.toISOString().slice(0, 10);

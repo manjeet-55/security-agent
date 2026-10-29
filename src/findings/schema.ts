@@ -26,6 +26,8 @@ export const FindingSchema = z.object({
     .min(1, 'a finding must cite at least one evidence id'),
   reasoning: z.string().min(1),
   fix: z.object({ where: z.string(), how: z.string(), side_effects: z.array(z.string()).default([]) }).optional(),
+  /** The accepted-risk entry from exceptions.yaml that applies to this finding; expired: true means it lapsed and the finding is open again. */
+  exception: z.object({ owner: z.string(), reason: z.string(), expires: z.string(), expired: z.boolean() }).optional(),
   refs: z.array(z.url()).default([]),
   knowledge: z.array(z.string()).default([]),
   first_seen: z.iso.datetime(),

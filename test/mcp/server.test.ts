@@ -22,6 +22,7 @@ describe('secagent MCP server', () => {
     expect(text).toMatch(/unverifiable.*unknown/i);
     expect(text).toMatch(/new scan/i);
     expect(text).toContain('kb_read INDEX');
+    expect(text).toMatch(/accepted_risk.*not fixed/i);
     expect(text).toMatch(/only approved knowledge/i);
     expect(text).toMatch(/secret/i);
     expect(client.getServerVersion()?.name).toBe('secagent');

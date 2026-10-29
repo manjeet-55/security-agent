@@ -180,6 +180,26 @@ describe('scanNoAi', () => {
       expect((await scanNoAi(dir, { now: T2, consentAt })).consent_at).toBe('2026-10-28T09:59:00.000Z');
     });
 
+    it('applies exceptions.yaml: an accepted risk is reported as one, reopens when it expires, and a broken file stops the scan', async () => {
+      const dir = await leakyProject();
+      const file = `${dir}/.secagent/knowledge/exceptions.yaml`;
+      const entry = (until: string) => `exceptions:\n  - finding_id: code-secrets-working-tree@code\n    owner: dev-lead\n    reason: rotating the key next sprint\n    expires: "${until}"\n`;
+      await writeFile(file, entry('2026-12-31'));
+      const first = await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T1, only: ['code'] });
+      const accepted = first.findings.find((f) => f.id === 'code-secrets-working-tree@code');
+      expect(accepted).toMatchObject({ status: 'accepted_risk', exception: { owner: 'dev-lead', expired: false } });
+      expect(first.findings.filter((f) => f.status === 'open')).toHaveLength(2);
+      expect(first.diff.new).not.toContain('code-secrets-working-tree@code');
+
+      await writeFile(file, entry('2026-10-01'));
+      const second = await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T2, only: ['code'] });
+      expect(second.findings.find((f) => f.id === 'code-secrets-working-tree@code')).toMatchObject({ status: 'open', exception: { expired: true } });
+      expect(second.diff.new).toEqual(['code-secrets-working-tree@code']);
+
+      await writeFile(file, 'exceptions:\n  - finding_id: x\n');
+      await expect(scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T2, only: ['code'] })).rejects.toThrow(/exceptions\.yaml/);
+    });
+
     it('skips the code checks when code.enabled is false', async () => {
       const dir = await leakyProject();
       await setCode(dir, { enabled: false });

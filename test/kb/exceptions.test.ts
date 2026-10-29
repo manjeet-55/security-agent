@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeException, loadExceptions } from '../../src/kb/exceptions.js';
+import { activeException, exceptionFor, loadExceptions } from '../../src/kb/exceptions.js';
 import { FIXED_NOW } from '../helpers/ctx.js';
 import { makeProject } from '../helpers/project.js';
 import { writeFiles } from '../helpers/tmp.js';
@@ -18,6 +18,18 @@ describe('exceptions.yaml', () => {
     expect(activeException(list, 'hdr-csp@app', FIXED_NOW)?.owner).toBe('dev-lead');
     expect(activeException(list, 'hdr-csp@app', new Date('2026-10-29T00:00:00Z'))).toBeUndefined();
     expect(activeException(list, 'hdr-hsts@app', FIXED_NOW)).toBeUndefined();
+  });
+
+  it('exceptionFor prefers an active entry, else the most recently expired one, and says which it is', () => {
+    const list = [
+      { finding_id: 'a@x', owner: 'old', reason: 'r', expires: '2026-01-01' },
+      { finding_id: 'a@x', owner: 'older', reason: 'r', expires: '2025-06-01' },
+      { finding_id: 'b@x', owner: 'now', reason: 'r', expires: '2026-12-31' },
+      { finding_id: 'b@x', owner: 'gone', reason: 'r', expires: '2026-01-01' },
+    ];
+    expect(exceptionFor(list, 'a@x', FIXED_NOW)).toMatchObject({ owner: 'old', expired: true });
+    expect(exceptionFor(list, 'b@x', FIXED_NOW)).toMatchObject({ owner: 'now', expired: false });
+    expect(exceptionFor(list, 'c@x', FIXED_NOW)).toBeUndefined();
   });
 
   it('names the field when an entry is invalid', async () => {

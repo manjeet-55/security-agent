@@ -38,6 +38,55 @@ describe('verdict', () => {
   });
 });
 
+const EXCEPTION = { owner: 'dev-lead', reason: 'HSTS rolls out with the new proxy', expires: '2026-12-31', expired: false };
+
+/** The fixture with its open web finding accepted as a risk. */
+function withAccepted(overrides: Record<string, unknown> = {}) {
+  const base = fixtureRecord();
+  return {
+    ...base,
+    findings: base.findings.map((f) => (f.check_id === 'hdr-hsts' ? { ...f, status: 'accepted_risk' as const, exception: EXCEPTION, ...overrides } : f)),
+  };
+}
+
+describe('accepted risks', () => {
+  it('are not open: the verdict, Fix first and the issue counts leave them out, and they never make the report green', () => {
+    const only = { ...withAccepted(), findings: withAccepted().findings.filter((f) => f.status === 'accepted_risk') };
+    expect(verdict(only)).toEqual({ tone: 'yellow', text: 'No open issues, but 1 accepted risk(s) remain' });
+    const withGap = { ...withAccepted(), findings: withAccepted().findings.filter((f) => f.status !== 'open') };
+    expect(verdict(withGap)).toEqual({ tone: 'yellow', text: 'No open issues, but 1 accepted risk(s) remain and 1 check(s) could not be verified' });
+    expect(verdict(withAccepted())).toEqual({ tone: 'red', text: 'Needs attention: 1 high-priority issue(s)' });
+    const blocks = build(withAccepted());
+    expect((section(blocks, 'Fix first')[0] as Extract<Block, { kind: 'list' }>).items.map(text)).toHaveLength(1);
+    const glance = section(blocks, 'At a glance')[0] as Extract<Block, { kind: 'table' }>;
+    expect(glance.rows[1]).toEqual(['Websites and APIs', '3', '0', '0']);
+  });
+
+  it('get their own section after Findings, with who accepted what, until when and why', () => {
+    const blocks = build(withAccepted());
+    expect(headings(blocks, 2)).toEqual(['At a glance', 'Fix first', 'Findings', 'Accepted risks', 'Could not verify', 'Fixed since the last scan', 'Passed', 'About this scan']);
+    const [note, table] = section(blocks, 'Accepted risks');
+    expect(text((note as Extract<Block, { kind: 'paragraph' }>).spans)).toContain('still present');
+    expect(table).toEqual({
+      kind: 'table',
+      head: ['Severity', 'Check', 'Where', 'Owner', 'Until', 'Reason'],
+      rows: [['MEDIUM', 'hdr-hsts title', 'https://portal.example.com', 'dev-lead', '2026-12-31', 'HSTS rolls out with the new proxy']],
+    });
+  });
+
+  it('leave the section out when there are none', () => {
+    expect(headings(build(), 2)).not.toContain('Accepted risks');
+  });
+
+  it('an expired exception is shown on the reopened finding as the earlier decision', () => {
+    const record = fixtureRecord();
+    const findings = record.findings.map((f) => (f.check_id === 'hdr-hsts' ? { ...f, exception: { ...EXCEPTION, expires: '2026-10-01', expired: true } } : f));
+    const fields = section(build({ findings }), 'Findings')[3] as Extract<Block, { kind: 'fields' }>;
+    expect(fields.items.map((i) => i.label)).toEqual(['Where', 'Earlier decision', 'What we found', 'Why it matters', 'How to fix', 'Learn more', 'Evidence']);
+    expect(text(fields.items[1]?.spans ?? [])).toBe('Accepted by dev-lead until 2026-10-01 ("HSTS rolls out with the new proxy"); that has expired, so this is open again.');
+  });
+});
+
 describe('areaOf and whereOf', () => {
   const instances = fixtureInstances();
   it('sorts checks into code, websites and servers', () => {

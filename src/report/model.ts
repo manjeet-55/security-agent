@@ -76,8 +76,13 @@ export function verdict(record: ScanRecord): { tone: Tone; text: string } {
   const open = record.findings.filter((f) => f.status === 'open');
   const urgent = open.filter((f) => f.severity === 'critical' || f.severity === 'high').length;
   const unverifiable = record.findings.filter((f) => f.status === 'unverifiable').length;
+  const accepted = record.findings.filter((f) => f.status === 'accepted_risk').length;
   if (urgent > 0) return { tone: 'red', text: `Needs attention: ${urgent} high-priority issue(s)` };
   if (open.length > 0) return { tone: 'yellow', text: `Some issues to fix: ${open.length} open` };
+  if (accepted > 0) {
+    const gaps = unverifiable > 0 ? ` and ${unverifiable} check(s) could not be verified` : '';
+    return { tone: 'yellow', text: `No open issues, but ${accepted} accepted risk(s) remain${gaps}` };
+  }
   if (unverifiable > 0) return { tone: 'yellow', text: `No issues found, but ${unverifiable} check(s) could not be verified` };
   return { tone: 'green', text: 'No issues found' };
 }
@@ -168,6 +173,9 @@ function findingsSection(input: ReportInput, open: Finding[]): Block[] {
     const how = fixText(f);
     const items: Array<{ label: string; spans: Span[] }> = [
       { label: 'Where', spans: [{ text: whereOf(input.project, f.target) }] },
+      ...(f.exception?.expired
+        ? [{ label: 'Earlier decision', spans: [{ text: `Accepted by ${f.exception.owner} until ${f.exception.expires} ("${f.exception.reason}"); that has expired, so this is open again.` }] }]
+        : []),
       ...(result ? [{ label: 'What we found', spans: [{ text: result.observed }] }] : []),
       { label: 'Why it matters', spans: [{ text: instance?.why ?? f.title }] },
       ...(how ? [{ label: 'How to fix', spans: [{ text: how }] }] : []),
@@ -177,6 +185,17 @@ function findingsSection(input: ReportInput, open: Finding[]): Block[] {
     blocks.push({ kind: 'heading', level: 3, text: failedTitle(f), severity: f.severity }, { kind: 'fields', items });
   }
   return blocks;
+}
+
+function acceptedRisks(input: ReportInput): Block[] {
+  const accepted = input.record.findings.filter((f) => f.status === 'accepted_risk').sort(bySeverity);
+  if (accepted.length === 0) return [];
+  const rows = accepted.map((f) => [f.severity.toUpperCase(), f.title, whereOf(input.project, f.target), f.exception?.owner ?? '', f.exception?.expires ?? '', f.exception?.reason ?? '']);
+  return [
+    { kind: 'heading', level: 2, text: 'Accepted risks' },
+    { kind: 'paragraph', spans: [{ text: 'A person accepted these risks. They are still present and stay listed here until they are fixed or the date passes, when they count as open again.' }] },
+    { kind: 'table', head: ['Severity', 'Check', 'Where', 'Owner', 'Until', 'Reason'], rows },
+  ];
 }
 
 function couldNotVerify(input: ReportInput): Block[] {
@@ -248,6 +267,7 @@ export function buildReport(input: ReportInput): Block[] {
     ...atAGlance(input),
     ...fixFirst(input),
     ...findingsSection(input, open),
+    ...acceptedRisks(input),
     ...couldNotVerify(input),
     ...fixedSince(input),
     ...passed(input),

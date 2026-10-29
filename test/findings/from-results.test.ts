@@ -3,6 +3,7 @@ import { CheckInstanceSchema, type CheckInstance } from '../../src/checks/catalo
 import { diffScans } from '../../src/findings/diff.js';
 import { resultsToFindings } from '../../src/findings/from-results.js';
 import type { ScanRecord } from '../../src/findings/schema.js';
+import type { RiskException } from '../../src/kb/exceptions.js';
 import type { CheckResult, Outcome, Severity } from '../../src/types.js';
 
 const EV = 'ev_20261028T100000Z_00000000';
@@ -89,3 +90,56 @@ describe('carry-forward of open findings through unverifiable scans', () => {
     expect(third.findings[0]).toMatchObject({ status: 'open', first_seen: T1.toISOString(), verified_at: T3.toISOString() });
   });
 });
+
+describe('accepted risks (exceptions.yaml)', () => {
+  const T1 = new Date('2026-10-27T10:00:00.000Z');
+  const ACTIVE: RiskException = { finding_id: 'hdr-hsts@app', owner: 'dev-lead', reason: 'HSTS rolls out with the new proxy', expires: '2026-12-31' };
+  const EXPIRED: RiskException = { ...ACTIVE, expires: '2026-10-01' };
+  const previousWith = (status: 'open' | 'accepted_risk'): ScanRecord => {
+    const [f] = resultsToFindings([result('fail')], INSTANCES, undefined, {}, T1);
+    return {
+      schema: 1, scanned_at: T1.toISOString(), scan_label: 't', mode: 'no-ai', results: [],
+      findings: [{ ...(f as NonNullable<typeof f>), status }], diff: { new: [], fixed: [], regressed: [] },
+    };
+  };
+
+  it('a failing check with an active exception is an accepted risk that keeps its severity, evidence and fix', () => {
+    const [f] = resultsToFindings([result('fail', 'high')], INSTANCES, undefined, { proxy: 'nginx' }, NOW, [ACTIVE]);
+    expect(f).toMatchObject({
+      id: 'hdr-hsts@app', status: 'accepted_risk', severity: 'high', evidence: [EV],
+      exception: { owner: 'dev-lead', reason: 'HSTS rolls out with the new proxy', expires: '2026-12-31', expired: false },
+    });
+    expect(f?.fix?.where).toBe('nginx');
+    expect(f?.reasoning).toContain('Accepted risk');
+    expect(f?.reasoning).toContain('dev-lead');
+  });
+
+  it('an expired exception leaves the finding open and remembers the earlier decision', () => {
+    const [f] = resultsToFindings([result('fail')], INSTANCES, undefined, {}, NOW, [EXPIRED]);
+    expect(f).toMatchObject({ status: 'open', exception: { owner: 'dev-lead', expires: '2026-10-01', expired: true } });
+  });
+
+  it('an exception only covers the finding it names', () => {
+    const findings = resultsToFindings([result('fail'), { ...result('fail'), target: 'api' }], INSTANCES, undefined, {}, NOW, [ACTIVE]);
+    expect(findings.map((f) => [f.id, f.status])).toEqual([['hdr-hsts@app', 'accepted_risk'], ['hdr-hsts@api', 'open']]);
+  });
+
+  it('cannot accept what could not be checked, and a passing check needs no exception', () => {
+    expect(resultsToFindings([result('unverifiable')], INSTANCES, undefined, {}, NOW, [ACTIVE])[0]).toMatchObject({ status: 'unverifiable' });
+    expect(resultsToFindings([result('unverifiable')], INSTANCES, undefined, {}, NOW, [ACTIVE])[0]?.exception).toBeUndefined();
+    expect(resultsToFindings([result('pass')], INSTANCES, undefined, {}, NOW, [ACTIVE])).toEqual([]);
+  });
+
+  it('a finding that was accepted and now passes is fixed, with its first_seen', () => {
+    const [f] = resultsToFindings([result('pass')], INSTANCES, previousWith('accepted_risk'), {}, NOW, [ACTIVE]);
+    expect(f).toMatchObject({ status: 'fixed', first_seen: T1.toISOString() });
+  });
+
+  it('an open finding that is not re-verified becomes accepted when an exception now covers it, and reopens when it lapses', () => {
+    expect(resultsToFindings([result('unverifiable')], INSTANCES, previousWith('open'), {}, NOW, [ACTIVE])[0]).toMatchObject({ status: 'accepted_risk' });
+    const reopened = resultsToFindings([result('unverifiable')], INSTANCES, previousWith('accepted_risk'), {}, NOW, [EXPIRED])[0];
+    expect(reopened).toMatchObject({ status: 'open', exception: { expired: true } });
+    expect(reopened?.reasoning).toContain('Not re-verified');
+  });
+});
+

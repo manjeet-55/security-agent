@@ -245,7 +245,7 @@ Knowledge with `review: pending` may add findings or raise severity. It may **no
 
 ### 5.6 Exceptions
 
-`exceptions.yaml` entries hold `finding_id`, `owner`, `reason`, `expires` (required). On expiry, triage reopens the finding.
+`exceptions.yaml` entries hold `finding_id`, `owner`, `reason`, `expires` (required). A person adds one with `secagent accept <finding-id> --owner --reason --until <date>` (only open findings; at most one year ahead; reason at least 10 characters) or by editing the file; no MCP tool can. Every scan applies them: an open finding with an active exception (it holds through its `expires` date) gets status `accepted_risk`, keeps its severity and evidence, and carries the entry as `exception`. The verdict never reads green while any accepted risk remains, and the report lists them in an "Accepted risks" section. When the date passes the finding is `open` again, carries `exception.expired: true`, and the report shows the earlier decision on it. A check that passes after being accepted is `fixed`.
 
 ### 5.7 Git policy for `.secagent/`
 

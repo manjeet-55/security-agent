@@ -17,6 +17,14 @@ describe('diffScans', () => {
   it('treats everything open as new on the first scan', () => {
     expect(diffScans(undefined, { results: [result('a', 'fail')], findings: [finding('a', 'open')] })).toEqual({ new: ['a@app'], fixed: [], regressed: [] });
   });
+  it('an accepted risk is neither new nor regressed, is fixed when it passes, and is new again when its exception lapses', () => {
+    const accepted = record([result('a', 'fail')], [finding('a', 'accepted_risk')]);
+    expect(diffScans(undefined, { results: [result('a', 'fail')], findings: [finding('a', 'accepted_risk')] })).toEqual({ new: [], fixed: [], regressed: [] });
+    expect(diffScans(accepted, { results: [result('a', 'fail')], findings: [finding('a', 'accepted_risk')] })).toEqual({ new: [], fixed: [], regressed: [] });
+    expect(diffScans(accepted, { results: [result('a', 'pass')], findings: [finding('a', 'fixed')] })).toEqual({ new: [], fixed: ['a@app'], regressed: [] });
+    expect(diffScans(accepted, { results: [result('a', 'fail')], findings: [finding('a', 'open')] })).toEqual({ new: ['a@app'], fixed: [], regressed: [] });
+  });
+
   it('reports fixed, regressed and unchanged correctly', () => {
     const previous = record(
       [result('a', 'fail'), result('b', 'pass'), result('c', 'fail')],

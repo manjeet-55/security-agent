@@ -1,13 +1,27 @@
 import type { CheckInstance } from '../checks/catalog.js';
+import { exceptionFor, type RiskException } from '../kb/exceptions.js';
 import type { Stack } from '../project/schema.js';
 import type { CheckResult, FindingStatus } from '../types.js';
 import { selectFix } from './fix.js';
 import { resultKey } from './ids.js';
 import type { Finding, ScanRecord } from './schema.js';
 
+/** An open finding covered by an exception becomes an accepted risk; one whose exception lapsed stays open and says so. */
+function withException(f: Finding, exceptions: readonly RiskException[], now: Date): Finding {
+  if (f.status !== 'open') return f;
+  const found = exceptionFor(exceptions, f.id, now);
+  if (!found) return f;
+  const exception = { owner: found.owner, reason: found.reason, expires: found.expires, expired: found.expired };
+  if (found.expired) {
+    return { ...f, exception, reasoning: `An earlier exception (${found.owner}, until ${found.expires}) has expired, so this is open again. ${f.reasoning}` };
+  }
+  return { ...f, status: 'accepted_risk', exception, reasoning: `Accepted risk by ${found.owner} until ${found.expires}: ${found.reason}. ${f.reasoning}` };
+}
+
 /**
  * Deterministic (--no-ai) mapping: fail → open, unverifiable/error → unverifiable, previously open now passing → fixed.
  * A finding that was open stays open (not re-verified, verified_at unchanged) when its check is unverifiable or errors.
+ * An open finding with an active exception in exceptions.yaml is an accepted risk; one that was accepted and now passes is fixed.
  */
 export function resultsToFindings(
   results: readonly CheckResult[],
@@ -15,6 +29,7 @@ export function resultsToFindings(
   previous: ScanRecord | undefined,
   stack: Stack,
   now: Date,
+  exceptions: readonly RiskException[] = [],
 ): Finding[] {
   const previousById = new Map((previous?.findings ?? []).map((f) => [f.id, f] as const));
   const iso = now.toISOString();
@@ -24,8 +39,8 @@ export function resultsToFindings(
     const id = resultKey(r);
     const prev = previousById.get(id);
     const inst = instances.get(r.check_id);
-    if ((r.outcome === 'unverifiable' || r.outcome === 'error') && prev?.status === 'open') {
-      findings.push({
+    if ((r.outcome === 'unverifiable' || r.outcome === 'error') && (prev?.status === 'open' || prev?.status === 'accepted_risk')) {
+      findings.push(withException({
         id,
         check_id: r.check_id,
         target: r.target,
@@ -41,7 +56,7 @@ export function resultsToFindings(
         first_seen: prev.first_seen,
         last_seen: prev.last_seen,
         verified_at: prev.verified_at,
-      });
+      }, exceptions, now));
       continue;
     }
     const status: FindingStatus | undefined =
@@ -49,12 +64,12 @@ export function resultsToFindings(
         ? 'open'
         : r.outcome === 'unverifiable' || r.outcome === 'error'
           ? 'unverifiable'
-          : prev?.status === 'open'
+          : prev?.status === 'open' || prev?.status === 'accepted_risk'
             ? 'fixed'
             : undefined;
     if (status === undefined) continue;
 
-    findings.push({
+    findings.push(withException({
       id,
       check_id: r.check_id,
       target: r.target,
@@ -72,7 +87,7 @@ export function resultsToFindings(
       first_seen: prev?.first_seen ?? iso,
       last_seen: iso,
       verified_at: iso,
-    });
+    }, exceptions, now));
   }
   return findings;
 }
