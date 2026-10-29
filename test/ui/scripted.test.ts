@@ -23,4 +23,9 @@ describe('ScriptedPrompter', () => {
     await expect(new ScriptedPrompter(['z']).select({ message: 'Pick', choices: [{ value: 'a', label: 'A' }] })).rejects.toThrow('not a choice');
     expect(() => new ScriptedPrompter(['left']).done()).toThrow('1 answer(s) left');
   });
+
+  it('throws an Error answer, for a cancelled prompt', async () => {
+    const p = new ScriptedPrompter([new Error('boom')]);
+    await expect(p.confirm({ message: 'ok?' })).rejects.toThrow('boom');
+  });
 });

@@ -131,6 +131,38 @@ describe('scanNoAi', () => {
       expect(byId.get('code-secrets-history@code')?.fix?.how).toContain('Rotate');
     });
 
+    it('reports progress: the number of checks first, then each result with its group, in order', async () => {
+      const dir = await leakyProject({
+        targets: [{ id: 'app', url: 'https://app.example.com', type: 'web', env: 'prod' }],
+        hosts: [{ name: 'web-1', address: '203.0.113.10', env: 'prod' }],
+      });
+      const net: NetClient = {
+        http: async (url) => fakeObs({ url, bodySnippet: '<html></html>' }),
+        tls: async () => {
+          throw new NetError('ECONNREFUSED', 'refused');
+        },
+        tcp: async () => 'closed',
+      };
+      const events: string[] = [];
+      const record = await scanNoAi(dir, {
+        net,
+        now: T1,
+        onPlan: (total) => events.push(`plan ${total}`),
+        onResult: (r, group) => events.push(`${group} ${r.check_id}`),
+      });
+      expect(events[0]).toBe(`plan ${record.results.length}`);
+      expect(events.slice(1)).toHaveLength(record.results.length);
+      expect(events.slice(1).map((e) => e.split(' ')[0])).toEqual([...record.results.map((r) => (r.target === 'code' ? 'code' : r.target === 'app' ? 'web' : 'host'))]);
+      expect(events.slice(1).map((e) => e.split(' ')[1])).toEqual(record.results.map((r) => r.check_id));
+    });
+
+    it('only plans the groups it runs', async () => {
+      const dir = await leakyProject({ targets: [{ id: 'app', url: 'https://app.example.com', type: 'web', env: 'prod' }] });
+      const plans: number[] = [];
+      await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T1, only: ['code'], onPlan: (n) => plans.push(n) });
+      expect(plans).toEqual([4]);
+    });
+
     it('records when consent was given, and leaves it out when it was not', async () => {
       const dir = await leakyProject();
       expect((await scanNoAi(dir, { now: T1 })).consent_at).toBeUndefined();

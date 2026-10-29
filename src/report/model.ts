@@ -115,13 +115,28 @@ function atAGlance(input: ReportInput): Block[] {
   return rows.length === 0 ? [] : [{ kind: 'heading', level: 2, text: 'At a glance' }, { kind: 'table', head: ['Area', 'Checks', 'Issues', 'Could not check'], rows }];
 }
 
-function fixFirst(input: ReportInput, open: Finding[]): Block[] {
-  if (open.length === 0) return [];
-  const items = open.slice(0, FIX_FIRST).map((f): Span[] => {
-    const fix = shortFix(f);
-    return [{ text: failedTitle(f), bold: true }, { text: ` — ${whereOf(input.project, f.target)}${fix ? ` — ${fix}` : ''}` }];
-  });
-  return [{ kind: 'heading', level: 2, text: 'Fix first' }, { kind: 'list', items }];
+export interface FixItem {
+  title: string;
+  where: string;
+  /** The first sentence of the fix. */
+  fix?: string;
+}
+
+/** The open findings to deal with first: highest severity first, then by id. */
+export function topFixes(input: ReportInput, limit: number): FixItem[] {
+  return input.record.findings
+    .filter((f) => f.status === 'open')
+    .sort(bySeverity)
+    .slice(0, limit)
+    .map((f) => {
+      const fix = shortFix(f);
+      return { title: failedTitle(f), where: whereOf(input.project, f.target), ...(fix ? { fix } : {}) };
+    });
+}
+
+function fixFirst(input: ReportInput): Block[] {
+  const items = topFixes(input, FIX_FIRST).map((i): Span[] => [{ text: i.title, bold: true }, { text: ` — ${i.where}${i.fix ? ` — ${i.fix}` : ''}` }]);
+  return items.length === 0 ? [] : [{ kind: 'heading', level: 2, text: 'Fix first' }, { kind: 'list', items }];
 }
 
 function findingsSection(input: ReportInput, open: Finding[]): Block[] {
@@ -196,7 +211,7 @@ export function buildReport(input: ReportInput): Block[] {
     { kind: 'title', text: `Security report: ${project.name}`, meta: `Scanned ${formatTime(record.scanned_at)} from network "${record.scan_label}" · deterministic scan, no AI` },
     { kind: 'verdict', tone: v.tone, text: v.text },
     ...atAGlance(input),
-    ...fixFirst(input, open),
+    ...fixFirst(input),
     ...findingsSection(input, open),
     ...couldNotVerify(input),
     ...fixedSince(input),

@@ -2,9 +2,9 @@ import { createAdvisories } from '../advisories/index.js';
 import type { Advisories } from '../advisories/types.js';
 import { loadCheckInstances } from '../checks/catalog.js';
 import type { AnyCheckType } from '../checks/check-type.js';
-import type { CheckContext } from '../checks/context.js';
+import type { CheckContext, CheckSubject } from '../checks/context.js';
 import { CHECK_TYPES } from '../checks/registry.js';
-import { runChecks } from '../checks/runner.js';
+import { applicableInstances, runChecks } from '../checks/runner.js';
 import { EvidenceStore } from '../evidence/store.js';
 import { diffScans } from '../findings/diff.js';
 import { resultsToFindings } from '../findings/from-results.js';
@@ -38,6 +38,10 @@ export interface ScanDeps {
   only?: readonly ScanGroup[];
   /** When the person running a guided scan confirmed they may test the systems in scope; recorded in the scan record. */
   consentAt?: Date;
+  /** Called once before the first check with how many will run. */
+  onPlan?: (total: number) => void;
+  /** Called after each check, with the group it belongs to. */
+  onResult?: (result: CheckResult, group: ScanGroup) => void;
 }
 
 /** Runs every applicable check on every listed target and host, with no AI involvement. */
@@ -57,14 +61,16 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
   };
 
   const groups = new Set<ScanGroup>(deps.only && deps.only.length > 0 ? deps.only : SCAN_GROUPS);
+  const subjects: Array<{ group: ScanGroup; subject: CheckSubject }> = [
+    ...(groups.has('web') ? project.targets.map((target) => ({ group: 'web' as const, subject: { kind: 'target' as const, target } })) : []),
+    ...(groups.has('host') ? project.hosts.map((host) => ({ group: 'host' as const, subject: { kind: 'host' as const, host } })) : []),
+    ...(groups.has('code') && project.code.enabled ? [{ group: 'code' as const, subject: { kind: 'code' as const, dir: projectDir } }] : []),
+  ];
+  deps.onPlan?.(subjects.reduce((n, s) => n + applicableInstances(instances, s.subject).length, 0));
   const results: CheckResult[] = [];
-  if (groups.has('web')) {
-    for (const target of project.targets) results.push(...(await runChecks(ctx, { kind: 'target', target }, instances, types)));
+  for (const { group, subject } of subjects) {
+    results.push(...(await runChecks(ctx, subject, instances, types, (r) => deps.onResult?.(r, group))));
   }
-  if (groups.has('host')) {
-    for (const host of project.hosts) results.push(...(await runChecks(ctx, { kind: 'host', host }, instances, types)));
-  }
-  if (groups.has('code') && project.code.enabled) results.push(...(await runChecks(ctx, { kind: 'code', dir: projectDir }, instances, types)));
 
   const store = new FindingsStore(projectDir);
   const previous = await store.latest();

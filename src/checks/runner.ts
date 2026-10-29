@@ -58,10 +58,13 @@ export async function runChecks(
   subject: CheckSubject,
   instances: readonly CheckInstance[],
   types: ReadonlyMap<string, AnyCheckType>,
+  onResult?: (result: CheckResult) => void,
 ): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
   for (const instance of applicableInstances(instances, subject)) {
-    results.push(await runInstance(ctx, subject, instance, types));
+    const result = await runInstance(ctx, subject, instance, types);
+    results.push(result);
+    onResult?.(result);
   }
   return results;
 }

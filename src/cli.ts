@@ -20,6 +20,9 @@ import { initProject } from './project/init.js';
 import { loadProject, ProjectConfigError } from './project/schema.js';
 import { Scope, ScopeError } from './project/scope.js';
 import { SCAN_GROUPS, scanNoAi, type ScanGroup } from './scan/no-ai.js';
+import { createTtyPrompter, type Prompter } from './ui/prompt.js';
+import { createStyle } from './ui/style.js';
+import { runWizard } from './wizard/run.js';
 import { SEVERITY_RANK } from './types.js';
 import { verifyClaim, type ClaimResult } from './verify/claim.js';
 import { loadReportInput } from './report/model.js';
@@ -35,6 +38,8 @@ export class UsageError extends Error {
 const USAGE = `secagent <command> [options]
 
 Commands:
+  start   Guided scan: asks what to check, scans, and writes a Markdown and PDF report (default when run with no command)
+            --dir <path>           project directory (default: .)
   init    Create .secagent/ in a project, detect its stack, write project.yaml
             --dir <path>           project directory (default: .)
             --name <name>          project name (default: directory name)
@@ -173,6 +178,12 @@ async function runReport(args: string[]): Promise<number> {
 }
 
 export interface CliDeps {
+  /** Whether stdin and stdout are a terminal (tests); defaults to the real streams. */
+  tty?: boolean;
+  /** Answers for the guided scan (tests); defaults to prompts on the terminal. */
+  prompter?: Prompter;
+  /** Where the guided scan prints (tests); defaults to stdout. */
+  out?: NodeJS.WritableStream;
   /** Injected advisory sources (tests); defaults to live clients with the user cache. */
   advisories?: Advisories;
   /** Injected clock (tests), used for snapshot age, evidence timestamps and advisory cache expiry; defaults to the wall clock. */
@@ -295,10 +306,32 @@ async function runLearn(args: string[], deps: CliDeps): Promise<number> {
   return 0;
 }
 
+/** The guided scan, on the terminal unless a prompter was injected. */
+async function runStart(args: string[], deps: CliDeps): Promise<number> {
+  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  const out = deps.out ?? process.stdout;
+  const style = createStyle(out as { isTTY?: boolean });
+  const dir = path.resolve(values.dir);
+  if (deps.prompter) return runWizard(dir, { prompter: deps.prompter, out, style, ...(deps.now ? { now: deps.now } : {}), ...(deps.advisories ? { advisories: deps.advisories } : {}) });
+  const prompter = createTtyPrompter(process.stdin, out, style);
+  try {
+    return await runWizard(dir, { prompter, out, style, ...(deps.now ? { now: deps.now } : {}), ...(deps.advisories ? { advisories: deps.advisories } : {}) });
+  } finally {
+    prompter.close();
+  }
+}
+
+function isTerminal(deps: CliDeps): boolean {
+  return deps.tty ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
 export async function main(argv: readonly string[], deps: CliDeps = {}): Promise<number> {
   const [command, ...rest] = argv;
   try {
     switch (command) {
+      case 'start':
+        if (!isTerminal(deps)) throw new UsageError('secagent start needs an interactive terminal. In scripts, use secagent init and secagent scan --no-ai.');
+        return await runStart(rest, deps);
       case 'init':
         return await runInit(rest);
       case 'scan':
@@ -314,6 +347,9 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
       case 'report':
         return await runReport(rest);
       case undefined:
+        if (isTerminal(deps)) return await runStart(rest, deps);
+        console.log(USAGE);
+        return 0;
       case 'help':
       case '--help':
       case '-h':

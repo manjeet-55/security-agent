@@ -2,7 +2,8 @@ import type { Choice, Prompter } from '../../src/ui/prompt.js';
 
 /**
  * Answers questions from a script, in order. `undefined` takes the question's default. A text answer that fails validation is
- * recorded in `rejected` and the next answer is tried, the way the terminal re-asks. Anything unexpected throws.
+ * recorded in `rejected` and the next answer is tried, the way the terminal re-asks. An Error answer is thrown (a cancelled
+ * prompt, say). Anything unexpected throws.
  */
 export class ScriptedPrompter implements Prompter {
   readonly asked: string[] = [];
@@ -17,7 +18,9 @@ export class ScriptedPrompter implements Prompter {
   private take(message: string): unknown {
     this.asked.push(message);
     if (this.answers.length === 0) throw new Error(`unexpected question: ${message}`);
-    return this.answers.shift();
+    const answer = this.answers.shift();
+    if (answer instanceof Error) throw answer;
+    return answer;
   }
 
   async text(q: { message: string; default?: string; validate?: (value: string) => string | undefined }): Promise<string> {

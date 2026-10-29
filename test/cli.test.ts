@@ -1,6 +1,7 @@
 import { parse, stringify } from 'yaml';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { PassThrough } from 'node:stream';
 import path from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { formatScan, main, parseHostSpec, parseTargetSpec, UsageError } from '../src/cli.js';
@@ -10,6 +11,7 @@ import { initProject } from '../src/project/init.js';
 import { loadProject, projectFile } from '../src/project/schema.js';
 import { fixtureAdvisories } from './helpers/advisories.js';
 import { repoWith } from './helpers/git.js';
+import { ScriptedPrompter } from './helpers/prompter.js';
 import { FAKE } from './helpers/secrets.js';
 import { FIXED_NOW } from './helpers/ctx.js';
 import { tempDir, writeFiles } from './helpers/tmp.js';
@@ -142,6 +144,36 @@ describe('main', () => {
     });
   });
 
+  describe('guided scan', () => {
+    const answers = () => new ScriptedPrompter([undefined, ['code'], 'exit']);
+
+    it('start without a terminal says to use init and scan instead', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(await main(['start'], { tty: false })).toBe(1);
+      expect(error).toHaveBeenCalledWith('secagent start needs an interactive terminal. In scripts, use secagent init and secagent scan --no-ai.');
+    });
+
+    it('start --dir asks the questions and writes the reports', async () => {
+      const target = await tempDir();
+      await repoWith(target, { 'src/app.ts': `// c\nconst id = '${FAKE.awsKeyId}';\n` });
+      const out = new PassThrough();
+      const prompter = answers();
+      expect(await main(['start', '--dir', target], { tty: true, prompter, out, now: () => FIXED_NOW })).toBe(0);
+      prompter.done();
+      expect(existsSync(path.join(target, '.secagent', 'reports', 'latest.pdf'))).toBe(true);
+    });
+
+    it('with no command on a terminal it starts the guided scan in the current folder', async () => {
+      const target = await tempDir();
+      await repoWith(target, { 'a.ts': 'x\n' });
+      vi.spyOn(process, 'cwd').mockReturnValue(target);
+      const prompter = answers();
+      expect(await main([], { tty: true, prompter, out: new PassThrough(), now: () => FIXED_NOW })).toBe(0);
+      prompter.done();
+      expect(existsSync(path.join(target, '.secagent', 'project.yaml'))).toBe(true);
+    });
+  });
+
   it('rejects unknown commands and unknown flags', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await main(['nope'])).toBe(1);
@@ -150,7 +182,7 @@ describe('main', () => {
 
   it('prints usage with no command', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    expect(await main([])).toBe(0);
+    expect(await main([], { tty: false })).toBe(0);
     expect(log).toHaveBeenCalledWith(expect.stringContaining('secagent <command>'));
   });
 });
