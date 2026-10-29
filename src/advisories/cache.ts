@@ -19,6 +19,19 @@ interface Scope {
   parent: Scope | undefined;
 }
 
+/**
+ * One store for every AdvisoryCache, not one per cache: Advisories composed from several caches (one source from each) must
+ * still report their reads into the scope of whichever `track` the caller used.
+ */
+const scopes = new AsyncLocalStorage<Scope>();
+
+/**
+ * Sources whose staleness does not make a result stale. The CISA KEV catalog only says which CVEs are exploited; it never
+ * changes a version comparison, so an old or unreachable catalog must neither block a dismissal nor turn a pass into
+ * unverifiable. Its fetch time still counts toward `as_of`, so the age is reported.
+ */
+const NOT_VERSION_DATA = new Set(['kev']);
+
 export interface Cached<T> {
   value: T;
   fetched_at: string;
@@ -31,31 +44,30 @@ export function defaultCacheDir(): string {
 
 /** File cache per source. Fresh entries are served as-is; on fetch failure a stale entry is served; with none, ADVISORY_UNAVAILABLE. */
 export class AdvisoryCache {
-  private readonly scope = new AsyncLocalStorage<Scope>();
-
   constructor(
     readonly dir: string = defaultCacheDir(),
     private readonly now: () => Date = () => new Date(),
   ) {}
 
   /**
-   * Runs `fn` and reports the freshness of exactly the advisory data read inside its async scope: the oldest `as_of` and the
-   * OR of `stale`, across every `getOrFetch` (and `record`) it awaits. Concurrent calls each get their own scope, so one
-   * caller's reads never show up in another's result.
+   * Runs `fn` and reports the freshness of exactly the advisory data read inside its async scope: the oldest `as_of` (KEV
+   * included) and the OR of `stale` over everything except KEV, across every `getOrFetch` (and `record`) it awaits, on any
+   * cache. Concurrent calls each get their own scope, so one caller's reads never show up in another's result.
    */
   async track<T>(fn: () => Promise<T>): Promise<{ value: T; freshness: Freshness | undefined }> {
-    const scope: Scope = { used: undefined, parent: this.scope.getStore() };
-    const value = await this.scope.run(scope, fn);
+    const scope: Scope = { used: undefined, parent: scopes.getStore() };
+    const value = await scopes.run(scope, fn);
     return { value, freshness: scope.used };
   }
 
-  /** Registers `c` as read by the surrounding `track` scope, if any; also for results a client memoises in memory. */
-  record<T>(c: Cached<T>): Cached<T> {
-    for (let scope = this.scope.getStore(); scope !== undefined; scope = scope.parent) {
+  /** Registers `c`, read from `source`, with the surrounding `track` scope, if any; also for results a client memoises in memory. */
+  record<T>(c: Cached<T>, source: string): Cached<T> {
+    const stale = c.stale && !NOT_VERSION_DATA.has(source);
+    for (let scope = scopes.getStore(); scope !== undefined; scope = scope.parent) {
       const prev = scope.used;
       scope.used = {
         as_of: prev === undefined || Date.parse(c.fetched_at) < Date.parse(prev.as_of) ? c.fetched_at : prev.as_of,
-        stale: (prev?.stale ?? false) || c.stale,
+        stale: (prev?.stale ?? false) || stale,
       };
     }
     return c;
@@ -66,14 +78,14 @@ export class AdvisoryCache {
     const cached = await this.read<T>(file, key);
     const now = this.now();
     const age = cached ? now.getTime() - Date.parse(cached.fetched_at) : Number.NaN;
-    if (cached && age < ttlMs && age >= -MAX_FUTURE_MS) return this.record({ ...cached, stale: false });
+    if (cached && age < ttlMs && age >= -MAX_FUTURE_MS) return this.record({ ...cached, stale: false }, source);
     let value: T;
     try {
       value = await fetcher();
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       if (cached) {
-        if (age >= -MAX_FUTURE_MS && age <= MAX_STALE_MS) return this.record({ ...cached, stale: true });
+        if (age >= -MAX_FUTURE_MS && age <= MAX_STALE_MS) return this.record({ ...cached, stale: true }, source);
         const why = Number.isNaN(age) || age < 0 ? `its timestamp ${cached.fetched_at} is not usable` : `it is ${Math.floor(age / DAY)} days old (limit ${MAX_STALE_MS / DAY})`;
         throw new ObservationError('ADVISORY_UNAVAILABLE', `${source} advisories could not be refreshed (${reason}) and the cached copy is too old to use: ${why}`);
       }
@@ -81,7 +93,7 @@ export class AdvisoryCache {
     }
     const fetched_at = now.toISOString();
     await this.write(file, { key, fetched_at, value });
-    return this.record({ value, fetched_at, stale: false });
+    return this.record({ value, fetched_at, stale: false }, source);
   }
 
   /** Best-effort: a cache that cannot be written must never discard a successful fetch. */

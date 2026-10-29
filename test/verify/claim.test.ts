@@ -355,17 +355,61 @@ describe('verifyClaim advisory freshness', () => {
     expect(r).toMatchObject({ verdict: 'vulnerable', stale: true });
   });
 
-  it('counts a stale KEV catalog in the reported as_of and stale flag, and blocks dismissal', async () => {
+  async function staleKevAdvisories(): Promise<Advisories> {
     const dir = await tempDir();
     const now = new Date('2026-10-28T15:00:00Z');
     await createAdvisories({ cacheDir: dir, fetchJson: fixtureFetch(), now: () => new Date(now.getTime() - 20 * 86_400_000) }).kev.catalog();
     await createAdvisories({ cacheDir: dir, fetchJson: fixtureFetch(), now: () => now }).ubuntu.cve('CVE-2024-6387');
-    const offline = async (): Promise<never> => {
-      throw new Error('offline');
+    return createAdvisories({ cacheDir: dir, fetchJson: offline, now: () => now });
+  }
+  const offline = async (): Promise<never> => {
+    throw new Error('offline');
+  };
+
+  it('shows a stale KEV catalog in as_of but does not let it block a dismissal (KEV never changes the version comparison)', async () => {
+    const r = await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { advisories: await staleKevAdvisories() });
+    expect(r).toMatchObject({ verdict: 'fixed_in_installed', stale: false, as_of: '2026-10-08T15:00:00.000Z', kev: false });
+    expect(r.reason).not.toContain('stale');
+  });
+
+  it('an unavailable KEV catalog does not block a dismissal either', async () => {
+    const advisories = fixtureAdvisories(await tempDir());
+    advisories.kev = {
+      catalog: async () => {
+        throw new ObservationError('ADVISORY_UNAVAILABLE', 'offline');
+      },
     };
-    const advisories = createAdvisories({ cacheDir: dir, fetchJson: offline, now: () => now });
-    const r = await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { advisories });
-    expect(r).toMatchObject({ verdict: 'unverifiable', stale: true, as_of: '2026-10-08T15:00:00.000Z', kev: false });
-    expect(r.reason).toContain('advisory data is stale (as of 2026-10-08)');
+    expect((await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { advisories })).verdict).toBe('fixed_in_installed');
+  });
+
+  describe('when the freshness of the advisory data is unknown', () => {
+    const blind = (a: Advisories): Advisories => ({ ...a, track: async (fn) => ({ value: await fn(), freshness: undefined }) });
+
+    it('turns fixed_in_installed and not_affected into unverifiable, naming the reason', async () => {
+      for (const cve of ['CVE-2024-6387', 'CVE-2021-41617']) {
+        const r = await verify(fixtureSnapshot('ubuntu-24-04'), cve, { advisories: blind(fixtureAdvisories(await tempDir())) });
+        expect(r.verdict, cve).toBe('unverifiable');
+        expect(r.reason).toContain('advisory freshness unknown');
+        expect(r.packages[0]?.note).toContain('advisory freshness unknown');
+        expect(r.as_of).toBeUndefined();
+      }
+    });
+
+    it('does not hide a vulnerable verdict', async () => {
+      const old = decodeSnapshot(withSourceVersion(fixtureEnvelope('ubuntu-24-04'), 'openssh', '1:9.6p1-3ubuntu13'));
+      const r = await verify(old, 'CVE-2024-6387', { advisories: blind(fixtureAdvisories(await tempDir())) });
+      expect(r.verdict).toBe('vulnerable');
+    });
+  });
+
+  it('tracks reads made through a different cache than the one whose track is called (mixed Advisories on 20-day-old data)', async () => {
+    const dir = await tempDir();
+    const now = new Date('2026-10-28T15:00:00Z');
+    await createAdvisories({ cacheDir: dir, fetchJson: fixtureFetch(), now: () => new Date(now.getTime() - 20 * 86_400_000) }).ubuntu.cve('CVE-2024-6387');
+    const old = createAdvisories({ cacheDir: dir, fetchJson: offline, now: () => now });
+    const other = createAdvisories({ cacheDir: await tempDir(), fetchJson: fixtureFetch(), now: () => now });
+    const mixed: Advisories = { osv: old.osv, ubuntu: old.ubuntu, kev: other.kev, track: other.track };
+    const r = await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { advisories: mixed });
+    expect(r).toMatchObject({ verdict: 'unverifiable', stale: true, as_of: '2026-10-08T15:00:00.000Z' });
   });
 });

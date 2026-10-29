@@ -267,7 +267,11 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
     const snap = stored.snapshot;
     if (read.judged) {
       ({ packages, reason, source_url } = read.judged);
-      if (fresh?.stale) {
+      if (fresh === undefined) {
+        // A source that can't say how fresh its data is is not a source a finding can be dismissed on.
+        packages = downgradeSafe(packages, () => 'advisory freshness unknown');
+        reason += ' Note: advisory freshness unknown.';
+      } else if (fresh.stale) {
         const asOf = fresh.as_of.slice(0, 10);
         packages = downgradeSafe(packages, () => `advisory data is stale (as of ${asOf})`);
         reason += ` Note: advisory data is stale (as of ${asOf}).`;

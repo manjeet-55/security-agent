@@ -21,18 +21,25 @@ export class KevClient implements KevSource {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  /** The catalog is memoised in memory only until its cache entry expires (`fetched_at` + TTL), so a long-lived process refreshes it. */
+  /**
+   * The catalog is memoised in memory only until its cache entry expires (`fetched_at` + TTL), so a long-lived process refreshes it.
+   * Every return path registers the result with the caller's `track` scope: a call that joins another call's in-flight reload
+   * or reads the memo is in a different scope from the one that did the fetch, and must report the freshness all the same.
+   */
   async catalog(): Promise<Set<string>> {
+    const { result } = await this.current();
+    this.cache.record(result, 'kev');
+    return result.value;
+  }
+
+  private async current(): Promise<Loaded> {
     const pending = this.loaded;
     if (pending !== undefined) {
-      const current = await pending;
-      if (this.now().getTime() < current.expires) {
-        this.cache.record(current.result);
-        return current.result.value;
-      }
+      const loaded = await pending;
+      if (this.now().getTime() < loaded.expires) return loaded;
       if (this.loaded === pending) this.loaded = undefined;
     }
-    return (await (this.loaded ??= this.load())).result.value;
+    return (this.loaded ??= this.load());
   }
 
   private load(): Promise<Loaded> {

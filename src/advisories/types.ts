@@ -50,7 +50,12 @@ export interface KevSource {
 }
 
 export interface Freshness {
+  /** The oldest fetch time of any advisory data read, the CISA KEV catalog included. */
   as_of: string;
+  /**
+   * True when any OSV or Ubuntu data read came from a cached copy because its source was unreachable. The KEV catalog is
+   * reported through `as_of` only: it never changes a version comparison, so it does not make a result stale.
+   */
   stale: boolean;
 }
 
@@ -60,8 +65,9 @@ export interface Advisories {
   kev: KevSource;
   /**
    * Runs `fn` and reports the freshness (oldest `as_of`, OR of `stale`) of exactly the advisory data read inside its async
-   * scope, KEV included. Concurrent calls are isolated from each other. Required on purpose: a source that cannot say how
-   * fresh its data is must return `freshness: undefined` rather than leave the method out.
+   * scope, KEV included, on any cache. Concurrent calls are isolated from each other. `freshness` is `undefined` when
+   * nothing was read or the source cannot tell; callers must treat that as unknown freshness, never as fresh: a check does
+   * not pass and a verdict does not dismiss a finding on it.
    */
   track<T>(fn: () => Promise<T>): Promise<{ value: T; freshness: Freshness | undefined }>;
 }

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ObservationError } from '../../../src/checks/errors.js';
 import { distroSources, findFixable, hostPackageCheck, hostPackageParams, skippedSourceCount } from '../../../src/checks/types/host-package.js';
+import type { FetchJson } from '../../../src/advisories/fetch.js';
+import { createAdvisories } from '../../../src/advisories/index.js';
 import { decodeSnapshot } from '../../../src/host/snapshot.js';
-import { fixtureAdvisories, staleAdvisories } from '../../helpers/advisories.js';
+import { fixtureAdvisories, fixtureFetch, staleAdvisories } from '../../helpers/advisories.js';
 import { hostSubject, makeCtx } from '../../helpers/ctx.js';
 import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection, withSourceVersion, withVendorOpenssh } from '../../helpers/snapshots.js';
 import { tempDir } from '../../helpers/tmp.js';
@@ -92,6 +94,25 @@ describe('host_package advisories freshness', () => {
     const err = await runWith(blind).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ObservationError);
     expect(err).toMatchObject({ code: 'ADVISORIES_FRESHNESS_UNKNOWN' });
+  });
+
+  it('a stale KEV catalog alone does not make the advisories unverifiable: KEV does not affect the version comparison', async () => {
+    const now = new Date('2026-10-28T15:00:00Z');
+    let kevOffline = false;
+    const real = fixtureFetch();
+    const fetchJson: FetchJson = async (url, init) => {
+      if (kevOffline && url.includes('cisa.gov')) throw new Error('offline');
+      return real(url, init);
+    };
+    const dir = await tempDir();
+    await createAdvisories({ cacheDir: dir, fetchJson, now: () => new Date(now.getTime() - 20 * 86_400_000) }).kev.catalog();
+    kevOffline = true;
+    // OSV is fetched fresh just now; the 20-day-old KEV copy is served because its refresh fails.
+    const { out, record } = await runWith(createAdvisories({ cacheDir: dir, fetchJson, now: () => now }));
+    expect(out.outcome).toBe('pass');
+    expect(out.observed).toContain('; advisory data as of 2026-10-08');
+    expect(out.observed).not.toContain('STALE');
+    expect(JSON.stringify(record)).toMatch(/"advisories_as_of":"2026-10-08T15:00:00.000Z","advisories_stale":false/);
   });
 
   it('still fails a vulnerable package when freshness is unknown, without claiming an as-of date', async () => {

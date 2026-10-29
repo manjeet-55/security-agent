@@ -96,6 +96,72 @@ describe('AdvisoryCache.track', () => {
     expect(second.freshness).toEqual({ as_of: '2026-10-28T00:00:00.000Z', stale: false });
   });
 
+  it('every concurrent scope reports the KEV catalog, including those that join another call\'s in-flight reload', async () => {
+    let now = new Date('2026-10-20T00:00:00Z');
+    let offline = false;
+    const real = fixtureFetch();
+    const fetchJson: FetchJson = async (url, init) => {
+      if (offline) throw new Error('offline');
+      return real(url, init);
+    };
+    const cache = new AdvisoryCache(await tempDir(), () => now);
+    const kev = new KevClient(fetchJson, cache, () => now);
+    await kev.catalog();
+    now = new Date(now.getTime() + 2 * DAY);
+    offline = true;
+    const scopes = await Promise.all([1, 2, 3].map(() => cache.track(() => kev.catalog())));
+    for (const [i, s] of scopes.entries()) expect(s.freshness, `scope ${i}`).toEqual({ as_of: '2026-10-20T00:00:00.000Z', stale: false });
+    // a first-ever concurrent load too
+    const cold = new KevClient(real, cache, () => now);
+    const coldScopes = await Promise.all([1, 2, 3].map(() => cache.track(() => cold.catalog())));
+    for (const [i, s] of coldScopes.entries()) expect(s.freshness, `cold scope ${i}`).toBeDefined();
+  });
+
+  it('a stale KEV catalog moves as_of but does not make the data stale: KEV never changes a version comparison', async () => {
+    let now = new Date('2026-10-20T00:00:00Z');
+    let offline = false;
+    const real = fixtureFetch();
+    const fetchJson: FetchJson = async (url, init) => {
+      if (offline) throw new Error('offline');
+      return real(url, init);
+    };
+    const cache = new AdvisoryCache(await tempDir(), () => now);
+    const kev = new KevClient(fetchJson, cache, () => now);
+    await kev.catalog();
+    now = new Date(now.getTime() + 5 * DAY);
+    await cache.getOrFetch('osv', 'recent', 1000, async () => 1);
+    offline = true;
+    const { freshness } = await cache.track(async () => {
+      await kev.catalog();
+      await cache.getOrFetch('osv', 'recent', 1_000_000_000, async () => 2);
+    });
+    expect(freshness).toEqual({ as_of: '2026-10-20T00:00:00.000Z', stale: false });
+    now = new Date(now.getTime() + 3_600_000);
+    const osvStale = await cache.track(async () => {
+      await kev.catalog();
+      await cache.getOrFetch('osv', 'recent', 1000, async () => {
+        throw new Error('offline');
+      });
+    });
+    expect(osvStale.freshness).toEqual({ as_of: '2026-10-20T00:00:00.000Z', stale: true });
+  });
+
+  it('caches share one scope: reads through a different cache are still tracked', async () => {
+    const now = new Date('2026-10-28T00:00:00Z');
+    const dir = await tempDir();
+    await new AdvisoryCache(dir, () => new Date(now.getTime() - 20 * DAY)).getOrFetch('osv', 'k', 1000, async () => 1);
+    const reader = new AdvisoryCache(dir, () => now);
+    const other = new AdvisoryCache(await tempDir(), () => now);
+    const viaOther = await other.track(() =>
+      reader.getOrFetch('osv', 'k', 1000, async () => {
+        throw new Error('offline');
+      }),
+    );
+    expect(viaOther.freshness).toEqual({ as_of: '2026-10-08T00:00:00.000Z', stale: true });
+    const viaReader = await reader.track(() => other.getOrFetch('osv', 'fresh', 1000, async () => 2));
+    expect(viaReader.freshness).toEqual({ as_of: '2026-10-28T00:00:00.000Z', stale: false });
+  });
+
   it('createAdvisories exposes track', async () => {
     const adv = createAdvisories({ cacheDir: await tempDir(), fetchJson: fixtureFetch(), now: () => new Date('2026-10-28T00:00:00Z') });
     const { value, freshness } = await adv.track(() => adv.kev.catalog());
