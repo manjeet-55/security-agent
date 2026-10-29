@@ -136,6 +136,12 @@ hosts:                      # the ONLY hosts probes / collectors may concern
     role: web
     reachable_from: [office]   # networks expected to reach it; used in "unverifiable" notes
     serves: [portal-prod]      # stretch: lb_bypass check
+code:                       # optional: the checks that read the project directory itself (§7.2)
+  enabled: true
+  exclude: []               # gitignore-style globs, relative to the project directory
+  history: true             # scan git history for secrets removed since
+  max_files: 20000
+  max_file_bytes: 1000000
 ```
 
 ### 4.4 Data flow
@@ -255,7 +261,7 @@ Knowledge with `review: pending` may add findings or raise severity. It may **no
 
 ### 6.1 Types and instances
 
-Each check **type** is a TypeScript module with typed `params` (zod). Each check **instance** is a YAML file in `knowledge/checks/` naming a type, its params, default severity, `applies_to` (`web`, `api`, `host`), stack-specific `fix_hints` and provenance. Learning can add or modify instances (subject to review), never types.
+Each check **type** is a TypeScript module with typed `params` (zod). Each check **instance** is a YAML file in `knowledge/checks/` naming a type, its params, default severity, `applies_to` (`web`, `api`, `host`, `code`), stack-specific `fix_hints` and provenance. Learning can add or modify instances (subject to review), never types.
 
 ### 6.2 Types
 
@@ -270,6 +276,7 @@ Each check **type** is a TypeScript module with typed `params` (zod). Each check
 | `port_exposure` | TCP connect only, fixed list: 21, 22, 23, 2375, 3306, 5432, 6379, 9200, 11211, 27017. Runs against listed `hosts` only, never target hostnames, so CDN/shared infrastructure isn't port-probed. If nothing answers at all, including 80/443, the result is `unverifiable`. | first version |
 | `host_config` | From the collector: sshd `passwordauthentication no`, `permitrootlogin no\|prohibit-password`; nginx `server_tokens off`, `ssl_protocols` without TLSv1/TLSv1.1; listening sockets bound to `0.0.0.0` on database ports. Rules: `sshd_value`, `nginx_directive` (with `absent_default`/`when_absent`), `listening`, `auto_upgrades` | first version |
 | `host_package` | Each installed package version checked against distro advisories using Debian version comparison; package origin outside the distro security pocket flagged; reboot pending flagged; CVE in CISA's exploited-vulnerabilities list escalates to critical. Asserts: `advisories` (OSV querybatch by source package; fail only on fixes not installed, and count unfixed advisories as informational; it passes only when package origins and advisory freshness are known, §8.7), `third_party`, `reboot` | first version |
+| `code_secrets` | Reads the project directory, no network (§7.2). Rules: `working_tree` (secret patterns in the files git lists), `env_tracked` (`.env`, keys, state files tracked by git), `env_not_ignored` (the same, untracked and not ignored), `history` (secrets in lines any commit added) | first version |
 | `http_cors` | Sends a forged `Origin`; fails if it's reflected, or if `*` is sent with credentials | stretch |
 | `lb_bypass` | A host's own address, for hosts with `serves:`, must not serve that target's app directly | stretch |
 | `dns_dangling` | A CNAME whose target doesn't resolve (subdomain takeover risk) | stretch |
@@ -382,6 +389,30 @@ The agent records each claim as a finding with ID `ext:<CVE>@<host>`:
 | `unverifiable` | `unverifiable` |
 
 These findings fill the report's "Why the scanner was wrong" section (§10).
+
+### 7.2 Code checks
+
+Shift-left checks that read the project directory (the one holding `.secagent/`) instead of probing a target. They need no network and no snapshot, run inside `secagent scan --no-ai`, and report under the subject `code`, so finding ids look like `code-secrets-working-tree@code`. `code.enabled: false` in `project.yaml` turns them off.
+
+| Check id (severity high) | Rule | Passes when |
+|---|---|---|
+| `code-secrets-working-tree` | `working_tree` | no secret pattern matches in the files `git ls-files --cached --others --exclude-standard` lists (a directory walk with default excludes outside git) |
+| `code-env-files-tracked` | `env_tracked` | git tracks no `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `credentials*.json`, `terraform.tfstate*`, `.aws/credentials`, or `.npmrc` with a literal `_authToken`. Templates (`.env.example`, `.sample`, `.template`, `.dist`, `.defaults`) and `*.pub` are fine. |
+| `code-env-not-ignored` | `env_not_ignored` | no such file exists untracked and unignored, i.e. one `git add .` away from being committed (`git ls-files --others --exclude-standard`, which applies every ignore rule `git check-ignore` would) |
+| `code-secrets-history` | `history` | no high-confidence pattern matches in the lines added by any commit reachable from any ref (`git log --all -p`, newest first) |
+
+**Patterns.** AWS access key id, private-key block, GitHub token, Slack token, Stripe live key, Google API key, JWT, credentials in a URL, and a generic `api_key = "…"`-style assignment. The generic one is a heuristic: it skips placeholders (`changeme`, `example`, `your_…`, `${…}`, `process.env`, …), needs Shannon entropy ≥ 3.5, and runs over neither documentation, lockfiles nor history. A line containing `secagent:ignore` is skipped. `code.exclude` leaves paths out of all four checks.
+
+**Outside git.** `working_tree` still runs. The other three need git and are `unverifiable` ("not a git repository", "git was not found"). A shallow or partial clone cannot show its whole history, so `history` is `unverifiable` there too.
+
+**Limits, never silent.** `history` stops at 2000 commits, 20 MB of diff or 60 s (overridable in the instance's params). `working_tree` stops at `max_files` and skips files over `max_file_bytes`. Anything not read makes the result `unverifiable`, never `pass`; a result that found secrets still `fail`s and says what was not read.
+
+**Safety rules, tested.**
+- The secret value is never reported. A finding carries the path, line, pattern id and a fingerprint (first 8 hex digits of the value's SHA-256); history findings add the commit that introduced it. A no-leak test plants every pattern in the tree and in history, then searches the results, console output and every file under `.secagent/` for the raw values.
+- git is spawned with an argument array, no shell, `cwd` = the project directory, hooks and fsmonitor off, and no lazy fetch. Symlinks are never followed out of the project. `.secagent/` is never read, in the tree or in history.
+- Output is ordered by path then line and deduplicated.
+
+**Partial scans.** `secagent scan --no-ai --only code|web|host` (repeatable or comma-separated) runs only those groups and keeps the other groups' results and findings from the last scan unchanged, so the diff reports only what was re-run.
 
 ## 8. Learning loop
 
@@ -535,7 +566,7 @@ Output: Markdown in `.secagent/reports/`, plus a self-contained HTML file.
 | Command | Behaviour |
 |---|---|
 | `secagent init` | Stack detection; `project.yaml` from flags (`--target id=url,type,env`, `--host name=address,env`, `--scan-label`), because the agent's `init` phase does the interviewing; `.gitignore`; MCP config; `AGENTS.md` pointer |
-| `secagent scan --no-ai` | `run_checks` for every target plus `analyze_host` for every fresh snapshot. Maps fail→`open`, unverifiable→`unverifiable`; a finding that was `open` stays `open` (marked not re-verified, `verified_at` unchanged) when its check is unverifiable or errors. Writes findings and a report. No LLM. |
+| `secagent scan --no-ai [--only code\|web\|host]` | `run_checks` for every target plus `analyze_host` for every fresh snapshot, plus the code checks (§7.2). `--only` limits the run to some groups and keeps the rest of the last scan. Maps fail→`open`, unverifiable→`unverifiable`; a finding that was `open` stays `open` (marked not re-verified, `verified_at` unchanged) when its check is unverifiable or errors. Writes findings and a report. No LLM. |
 | `secagent mcp` | Starts the MCP server over stdio |
 | `secagent collector [--host h] [--out f]` | Print the read-only collector and how to run it |
 | `secagent snapshot add --host h <file>` | Validate and store collector output |
