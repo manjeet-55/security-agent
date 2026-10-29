@@ -214,6 +214,24 @@ function acceptedRisks(input: ReportInput): Block[] {
   ];
 }
 
+function triaged(input: ReportInput): Block[] {
+  const list = input.record.findings.filter((f) => (f.status === 'false_positive' || f.status === 'not_applicable') && f.triage).sort(bySeverity);
+  if (list.length === 0) return [];
+  const rows = list.map((f) => [
+    f.status === 'false_positive' ? 'False positive' : 'Not applicable',
+    f.title,
+    whereOf(input.project, f.target),
+    f.triage?.reason ?? '',
+    [...(f.triage?.knowledge ?? []).map((k) => `lesson ${k}`), ...(f.triage?.evidence ?? [])].join(', '),
+    f.triage?.expires ?? '',
+  ]);
+  return [
+    { kind: 'heading', level: 2, text: 'Marked not a problem' },
+    { kind: 'paragraph', spans: [{ text: 'An AI assistant marked these, each backed by approved knowledge or a deterministic verify_claim verdict. They reopen when the date passes or the cited lesson is no longer approved.' }] },
+    { kind: 'table', head: ['Marked', 'Check', 'Where', 'Reason', 'Backed by', 'Until'], rows },
+  ];
+}
+
 function couldNotVerify(input: ReportInput): Block[] {
   const gaps = input.record.findings.filter((f) => f.status === 'unverifiable').sort(bySeverity);
   if (gaps.length === 0) return [];
@@ -290,6 +308,7 @@ export function buildReport(input: ReportInput): Block[] {
     ...fixFirst(input),
     ...findingsSection(input, open),
     ...acceptedRisks(input),
+    ...triaged(input),
     ...couldNotVerify(input),
     ...fixedSince(input),
     ...passed(input),

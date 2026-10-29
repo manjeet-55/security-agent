@@ -20,6 +20,7 @@ export interface DetailedFinding extends CompactFinding {
   learn_more?: string;
   /** The exceptions.yaml entry behind an accepted_risk, or one that expired (the finding is open again). */
   exception?: NonNullable<Finding['exception']>;
+  triage?: NonNullable<Finding['triage']>;
   evidence: string[];
 }
 
@@ -54,6 +55,7 @@ export function detailedFinding(input: ReportInput, f: Finding): DetailedFinding
     ...(instance?.why ? { why: instance.why } : {}),
     ...(f.fix ? { fix: f.fix } : {}),
     ...(f.exception ? { exception: f.exception } : {}),
+    ...(f.triage ? { triage: f.triage } : {}),
     ...(instance ? { learn_more: instance.source_url } : {}),
     evidence: f.evidence,
   };

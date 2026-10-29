@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { fetchSource } from '../../kb/sources.js';
 import { kbRead, kbSearch, loadKnowledge } from '../../kb/store.js';
 import { writeLesson } from '../../kb/write.js';
+import { triageFinding } from '../../findings/triage.js';
 import { guarded, jsonResult } from '../result.js';
 import type { ServerState } from '../state.js';
 
@@ -71,6 +72,26 @@ export function registerKbTools(server: McpServer, state: ServerState): void {
       guarded(async () => {
         const lesson = await writeLesson(state.dir, draft, state.now());
         return jsonResult({ saved: true, id: lesson.id, review: lesson.review, file: lesson.file, next: 'A person reviews it with: secagent kb review' });
+      }),
+  );
+
+  server.registerTool(
+    'triage_finding',
+    {
+      description:
+        'Mark an open finding as a false positive or not applicable. Allowed only with a citation: an approved lesson id (knowledge) or verify_claim evidence for the same host with verdict fixed_in_installed or not_affected (evidence). Pending lessons do not count. The decision holds for 90 days, is applied by every scan and shown in the report; to accept a real risk instead, a person runs secagent accept.',
+      inputSchema: {
+        finding_id: z.string().min(1),
+        status: z.enum(['false_positive', 'not_applicable']),
+        reason: z.string().min(10).max(1000),
+        knowledge: z.array(z.string()).max(5).optional().describe('Approved lesson ids that show this is not a problem'),
+        evidence: z.array(z.string()).max(5).optional().describe('verify_claim evidence ids'),
+      },
+    },
+    ({ finding_id, status, reason, knowledge, evidence }) =>
+      guarded(async () => {
+        const entry = await triageFinding(state.dir, { findingId: finding_id, status, reason, ...(knowledge ? { knowledge } : {}), ...(evidence ? { evidence } : {}) }, state.now());
+        return jsonResult({ saved: true, entry, next: 'Call run_scan to apply it to the findings and the report.' });
       }),
   );
 }

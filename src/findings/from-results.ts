@@ -1,5 +1,6 @@
 import type { CheckInstance } from '../checks/catalog.js';
 import { exceptionFor, type RiskException } from '../kb/exceptions.js';
+import { activeTriage, type TriageEntry } from './triage.js';
 import type { Stack } from '../project/schema.js';
 import type { CheckResult, FindingStatus } from '../types.js';
 import { selectFix } from './fix.js';
@@ -19,19 +20,49 @@ function withException(f: Finding, exceptions: readonly RiskException[], now: Da
   return { ...f, status: 'accepted_risk', exception, reasoning: `${acceptedNote(found)}${f.reasoning}` };
 }
 
+export interface Decisions {
+  exceptions: readonly RiskException[];
+  triage: readonly TriageEntry[];
+  /** Lesson ids that are approved now; a triage entry whose only citations are lessons needs one of them to still hold. */
+  approvedLessons: ReadonlySet<string>;
+}
+
+const triageNote = (t: { status: string; reason: string }): string => `Marked ${t.status.replace('_', ' ')} by an AI assistant: ${t.reason}. `;
+
+/** People's exceptions first; an open finding they do not cover can be closed by a valid AI triage entry. */
+function decide(f: Finding, d: Decisions, now: Date): Finding {
+  const withExc = withException(f, d.exceptions, now);
+  if (withExc.status !== 'open') return withExc;
+  const t = activeTriage(d.triage, f.id, now, d.approvedLessons);
+  if (!t) return withExc;
+  return {
+    ...withExc,
+    status: t.status,
+    triage: { reason: t.reason, knowledge: t.knowledge, evidence: t.evidence, by: t.by, expires: t.expires },
+    reasoning: `${triageNote(t)}${withExc.reasoning}`,
+  };
+}
+
 /**
  * Exceptions follow the calendar, not the checks, so findings a partial scan carries over from an earlier scan are judged again:
  * an accepted risk whose date has passed (or whose entry was removed) is open again, an open finding that an exception now
  * covers is accepted, and an entry that changed is followed. Findings in any other status are returned as they are.
  */
-export function reapplyExceptions(findings: readonly Finding[], exceptions: readonly RiskException[], now: Date): Finding[] {
+export function reapplyExceptions(findings: readonly Finding[], exceptions: readonly RiskException[], now: Date, d?: Omit<Decisions, 'exceptions'>): Finding[] {
+  const decisions: Decisions = { exceptions, triage: d?.triage ?? [], approvedLessons: d?.approvedLessons ?? new Set() };
   return findings.map((f) => {
-    if (f.status !== 'accepted_risk' && f.status !== 'open') return f;
-    // Take off the note an earlier pass added (accepted or expired), so the note is rebuilt each time and never piles up.
-    const { exception, ...rest } = f;
+    const triaged = (f.status === 'false_positive' || f.status === 'not_applicable') && f.triage;
+    if (f.status !== 'accepted_risk' && f.status !== 'open' && !triaged) return f;
+    // Take off the notes an earlier pass added, so they are rebuilt each time and never pile up.
+    const { exception, triage, ...rest } = f;
+    let reasoning = f.reasoning;
+    if (triage) {
+      const note = triageNote({ status: f.status, reason: triage.reason });
+      if (reasoning.startsWith(note)) reasoning = reasoning.slice(note.length);
+    }
     const note = exception ? (exception.expired ? expiredNote(exception) : acceptedNote(exception)) : '';
-    const reasoning = note && f.reasoning.startsWith(note) ? f.reasoning.slice(note.length) : f.reasoning;
-    return withException({ ...rest, status: 'open', reasoning }, exceptions, now);
+    if (note && reasoning.startsWith(note)) reasoning = reasoning.slice(note.length);
+    return decide({ ...rest, status: 'open', reasoning }, decisions, now);
   });
 }
 
@@ -47,7 +78,9 @@ export function resultsToFindings(
   stack: Stack,
   now: Date,
   exceptions: readonly RiskException[] = [],
+  more?: Omit<Decisions, 'exceptions'>,
 ): Finding[] {
+  const decisions: Decisions = { exceptions, triage: more?.triage ?? [], approvedLessons: more?.approvedLessons ?? new Set() };
   const previousById = new Map((previous?.findings ?? []).map((f) => [f.id, f] as const));
   const iso = now.toISOString();
   const findings: Finding[] = [];
@@ -57,7 +90,7 @@ export function resultsToFindings(
     const prev = previousById.get(id);
     const inst = instances.get(r.check_id);
     if ((r.outcome === 'unverifiable' || r.outcome === 'error') && (prev?.status === 'open' || prev?.status === 'accepted_risk')) {
-      findings.push(withException({
+      findings.push(decide({
         id,
         check_id: r.check_id,
         target: r.target,
@@ -73,7 +106,7 @@ export function resultsToFindings(
         first_seen: prev.first_seen,
         last_seen: prev.last_seen,
         verified_at: prev.verified_at,
-      }, exceptions, now));
+      }, decisions, now));
       continue;
     }
     const status: FindingStatus | undefined =
@@ -86,7 +119,7 @@ export function resultsToFindings(
             : undefined;
     if (status === undefined) continue;
 
-    findings.push(withException({
+    findings.push(decide({
       id,
       check_id: r.check_id,
       target: r.target,
@@ -104,7 +137,7 @@ export function resultsToFindings(
       first_seen: prev?.first_seen ?? iso,
       last_seen: iso,
       verified_at: iso,
-    }, exceptions, now));
+    }, decisions, now));
   }
   return findings;
 }

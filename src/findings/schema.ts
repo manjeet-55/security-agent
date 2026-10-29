@@ -28,6 +28,8 @@ export const FindingSchema = z.object({
   fix: z.object({ where: z.string(), how: z.string(), side_effects: z.array(z.string()).default([]) }).optional(),
   /** The accepted-risk entry from exceptions.yaml that applies to this finding; expired: true means it lapsed and the finding is open again. */
   exception: z.object({ owner: z.string(), reason: z.string(), expires: z.string(), expired: z.boolean() }).optional(),
+  /** The AI triage decision behind a false_positive / not_applicable status, with what it cites (spec §5.4 trust rule). */
+  triage: z.object({ reason: z.string(), knowledge: z.array(z.string()), evidence: z.array(z.string()), by: z.string(), expires: z.string() }).optional(),
   refs: z.array(z.url()).default([]),
   knowledge: z.array(z.string()).default([]),
   first_seen: z.iso.datetime(),

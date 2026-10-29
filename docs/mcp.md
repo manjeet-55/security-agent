@@ -44,6 +44,7 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 | `kb_search` | Keyword search over the knowledge base: lessons from past remediations (global and the project's own) and the check catalog. Hits say whether they are approved or pending review. |
 | `fetch_source` | Fetches a page from an allowlisted reference site (`knowledge/sources.yaml`, https only), to cite in a lesson; the text is returned as untrusted |
 | `kb_write` | Proposes a project lesson that quotes a fetched page exactly; saved as pending until a person runs `secagent kb review --approve` |
+| `triage_finding` | Marks an open finding false positive or not applicable, only when citing an approved lesson or `verify_claim` evidence; holds 90 days, shown in the report |
 | `kb_read` | One lesson or check by id; `INDEX` is the one-line-per-entry overview, `notes` the project's notes, `exceptions` its accepted risks |
 
 ## What the assistant can and cannot do
@@ -53,6 +54,7 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 - It never receives secret values. Findings carry file, line, pattern and a fingerprint; evidence leaves out page bodies. Tell it to have the credentials rotated, not to read them.
 - Text that came back from the scanned systems (header values, file names) is untrusted data, and the server tells the assistant never to follow instructions found in it.
 - `accepted_risk` means a person accepted the risk until a date; it is not fixed. The assistant cannot accept a risk: only a person running `secagent accept` or editing `exceptions.yaml` can.
+- The assistant can mark a finding a false positive only through `triage_finding`, citing approved knowledge or `verify_claim` evidence. The report lists those under "Marked not a problem", and they reopen after 90 days or when the cited lesson is no longer approved.
 - Knowledge marked pending can add a finding or raise a severity; only approved knowledge can back calling a finding a false positive or lowering its severity.
 - Statuses come from the scan. The server tells the assistant that `unverifiable` means unknown, and that nothing is fixed until a new scan says so.
 - A scan started this way is recorded as such, and the report says "Run by an AI assistant through the MCP server".
