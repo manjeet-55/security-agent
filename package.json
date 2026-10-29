@@ -21,7 +21,8 @@
     "test": "vitest run",
     "dev": "tsx src/cli.ts",
     "demo:setup": "tsx scripts/demo-setup.ts",
-    "demo:server": "tsx scripts/demo-server.ts"
+    "demo:server": "tsx scripts/demo-server.ts",
+    "prepare": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

@@ -124,4 +124,6 @@ npm test                 # vitest
 npm run typecheck
 ```
 
+The `secagent` command (after `npm link`) runs the built files in `dist/`, not the sources. After changing the code or pulling new commits, run `npm run build` (or `npm install`, which builds too), or new commands will answer "Unknown command". `npm run dev -- <command>` runs the sources directly.
+
 The design is in `docs/superpowers/specs/`: `2026-10-29-secagent-guided-agent-design.md` for the guided scan and reports, `2026-10-28-secagent-design.md` for the checks.
