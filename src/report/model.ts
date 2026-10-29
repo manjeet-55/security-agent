@@ -55,7 +55,7 @@ export function areaOf(instance: CheckInstance | undefined): Area {
   return 'web';
 }
 
-function areaOfTarget(input: ReportInput, checkId: string, target: string): Area {
+export function areaOfTarget(input: ReportInput, checkId: string, target: string): Area {
   const instance = input.instances.get(checkId);
   if (instance) return areaOf(instance);
   if (target === CODE_SUBJECT_ID) return 'code';

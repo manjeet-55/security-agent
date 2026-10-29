@@ -5,6 +5,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { PACKAGE_ROOT } from '../paths.js';
 import { ServerState, type ServerOptions } from './state.js';
 import { registerProjectTools } from './tools/project.js';
+import { registerReadTools } from './tools/read.js';
+import { registerScanTools } from './tools/scan.js';
 
 /** Sent to the client when it connects; the rules that keep an AI assistant's statements tied to evidence. */
 export const SERVER_INSTRUCTIONS = [
@@ -29,6 +31,8 @@ export function createMcpServer(opts: ServerOptions): { server: McpServer; state
   const state = new ServerState(opts);
   const server = new McpServer({ name: 'secagent', version: version() }, { instructions: SERVER_INSTRUCTIONS });
   registerProjectTools(server, state);
+  registerScanTools(server, state);
+  registerReadTools(server, state);
   return { server, state };
 }
 
