@@ -1,0 +1,14 @@
+{
+  "name": "secagent",
+  "description": "secagent: deterministic security checks for the project you are in, driven from Claude Code.",
+  "owner": {
+    "name": "secagent maintainers"
+  },
+  "plugins": [
+    {
+      "name": "secagent",
+      "source": "./agent/claude-plugin",
+      "description": "Security review of the project you are in, with secagent's deterministic checks behind Claude."
+    }
+  ]
+}

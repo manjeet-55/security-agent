@@ -1,0 +1,6 @@
+{
+  "name": "secagent",
+  "version": "0.1.0",
+  "description": "Security review of the project you are in: secagent scans code, websites and servers deterministically; Claude explains, prioritises, helps fix and re-checks.",
+  "keywords": ["security", "scanner", "mcp"]
+}

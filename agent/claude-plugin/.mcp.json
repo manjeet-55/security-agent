@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "secagent": {
+      "command": "secagent",
+      "args": ["mcp", "--dir", "."]
+    }
+  }
+}

@@ -70,6 +70,8 @@ It is written to `.secagent/knowledge/exceptions.yaml` (owner, reason, last day;
 claude mcp add secagent -- secagent mcp --dir /path/to/your-project
 ```
 
+Or install the Claude Code plugin, which adds the server and a `/security-review` command: `claude plugin marketplace add /path/to/secagent`, then `claude plugin install secagent@secagent`. The playbook AI clients follow is `agent/AGENTS.md`.
+
 ## Commands for scripts and CI
 
 `secagent` with no command only starts the guided scan on a terminal; elsewhere it prints this list.

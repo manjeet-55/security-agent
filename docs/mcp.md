@@ -12,6 +12,13 @@ Claude Code:
 claude mcp add secagent -- secagent mcp --dir /path/to/your-project
 ```
 
+Claude Code plugin (adds the MCP server and a `/security-review` command for the project you open):
+
+```bash
+claude plugin marketplace add /path/to/secagent
+claude plugin install secagent@secagent
+```
+
 Any client that takes a JSON config (`.mcp.json`, `.cursor/mcp.json`, and similar; check your client's docs for the file):
 
 ```json
