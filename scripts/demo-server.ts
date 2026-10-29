@@ -6,13 +6,18 @@ const PAGE = '<!doctype html><html><head><title>Demo shop</title></head><body><h
 
 /**
  * A local web server with deliberate weaknesses, for demos: no security headers, a version in the Server header, X-Powered-By, a
- * cookie without flags, and a readable .env and .git/HEAD. It listens on 127.0.0.1 only.
+ * cookie without flags, a CORS policy that reflects any origin with credentials, and a readable .env and .git/HEAD. It listens on 127.0.0.1 only.
  */
 export function startDemoServer(port = 8080): Promise<{ url: string; close(): Promise<void> }> {
   const server = http.createServer((req, res) => {
     const url = (req.url ?? '/').split('?')[0];
     res.setHeader('Server', 'nginx/1.18.0 (Ubuntu)');
     res.setHeader('X-Powered-By', 'Express 4.17.1');
+    // A common mistake: echo back whatever Origin asked, with credentials.
+    if (req.headers.origin) {
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
     if (url === '/') {
       res.setHeader('Set-Cookie', 'session=demo-session-value; Path=/');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');

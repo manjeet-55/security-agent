@@ -42,7 +42,7 @@ Answer the questions:
 | Where are you scanning from? | Enter (office) |
 | I own these systems or have written permission to test them | `y` |
 
-Then it scans (19 checks, one line each), shows the verdict, the three things to fix first and where the reports are, and offers **Open the PDF report**.
+Then it scans (20 checks, one line each), shows the verdict, the three things to fix first and where the reports are, and offers **Open the PDF report**.
 
 What to point out:
 

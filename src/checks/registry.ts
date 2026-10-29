@@ -5,6 +5,7 @@ import { headerBudgetCheck } from './types/header-budget.js';
 import { hostConfigCheck } from './types/host-config.js';
 import { hostPackageCheck } from './types/host-package.js';
 import { httpCookieCheck } from './types/http-cookie.js';
+import { httpCorsCheck } from './types/http-cors.js';
 import { httpHeaderCheck } from './types/http-header.js';
 import { httpRedirectCheck } from './types/http-redirect.js';
 import { portExposureCheck } from './types/port-exposure.js';
@@ -15,6 +16,7 @@ const ALL: AnyCheckType[] = [
   httpRedirectCheck,
   httpHeaderCheck,
   httpCookieCheck,
+  httpCorsCheck,
   headerBudgetCheck,
   hostConfigCheck,
   hostPackageCheck,

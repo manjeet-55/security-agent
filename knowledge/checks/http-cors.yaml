@@ -1,0 +1,15 @@
+id: http-cors
+type: http_cors
+title: CORS does not let unknown websites read responses
+why: 'If the site answers any website with permission to read its responses, a page the user visits elsewhere can quietly read their data from it, as them.'
+severity: high
+applies_to: [web, api]
+params: {}
+fix_hints:
+  express: "cors({ origin: ['https://app.example.com'], credentials: true })  (an explicit list, never origin: true or a reflected header)"
+  nestjs: "app.enableCors({ origin: ['https://app.example.com'], credentials: true })"
+  nginx: 'Set Access-Control-Allow-Origin only from a map of allowed origins; never "add_header Access-Control-Allow-Origin $http_origin".'
+  any: 'Allow only the origins that need access, by exact match, and allow credentials only for those.'
+source_url: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/07-Testing_Cross_Origin_Resource_Sharing
+added_by: seed
+review: approved
