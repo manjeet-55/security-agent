@@ -225,7 +225,7 @@ describe('main', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await main(['kb'])).toBe(1);
     expect(await main(['kb', 'nope'])).toBe(1);
-    expect(error).toHaveBeenCalledWith('Usage: secagent kb index');
+    expect(error).toHaveBeenCalledWith('Usage: secagent kb index | secagent kb review');
   });
 
   it('rejects unknown commands and unknown flags', async () => {

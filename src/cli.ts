@@ -26,6 +26,7 @@ import { runWizard } from './wizard/run.js';
 import { runMcpStdio } from './mcp/server.js';
 import { evaluate, EvalError } from './eval.js';
 import { acceptRisk } from './kb/accept.js';
+import { approveLesson, pendingLessons, rejectLesson } from './kb/write.js';
 import { renderIndex } from './kb/index-md.js';
 import { KbError } from './kb/lesson.js';
 import { loadLessons } from './kb/store.js';
@@ -74,6 +75,8 @@ Commands:
             <finding-id>   --owner <name>   --reason <text>   --until <YYYY-MM-DD>   --dir <path>
   eval       Compare the latest scan with an expected-results file; exit 1 on any difference
             <expected.yaml>   --dir <path>
+  kb review  List lessons an AI assistant proposed; approve or reject one
+            [--approve <id> --by <name>]   [--reject <id>]   --dir <path>
   kb index   Regenerate knowledge/INDEX.md from the lessons and checks (for maintainers)
   mcp        Serve this project to an AI client (MCP over stdio): run_scan, get_findings, get_report, get_evidence, verify_claim
             --dir <path>
@@ -214,8 +217,39 @@ async function runEval(args: string[]): Promise<number> {
   return bad === 0 ? 0 : 1;
 }
 
-async function runKb(args: string[]): Promise<number> {
-  if (args.length !== 1 || args[0] !== 'index') throw new UsageError('Usage: secagent kb index');
+async function runKbReview(args: string[], deps: CliDeps): Promise<number> {
+  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' }, approve: { type: 'string' }, reject: { type: 'string' }, by: { type: 'string' } } });
+  const dir = path.resolve(values.dir);
+  const now = deps.now ? deps.now() : new Date();
+  if (values.approve) {
+    if (!values.by) throw new UsageError('Usage: secagent kb review --approve <id> --by <name>');
+    const l = await approveLesson(dir, values.approve, values.by, now);
+    console.log(`Approved ${l.id} (${values.by}). It can now back lowering a risk.`);
+    return 0;
+  }
+  if (values.reject) {
+    await rejectLesson(dir, values.reject);
+    console.log(`Rejected and removed ${values.reject}.`);
+    return 0;
+  }
+  const pending = await pendingLessons(dir);
+  if (pending.length === 0) {
+    console.log('No pending lessons.');
+    return 0;
+  }
+  for (const l of pending) {
+    console.log(`${l.id}: ${l.title}`);
+    console.log(`  source: ${l.source_url ?? '-'}`);
+    console.log(`  quote:  "${l.quote ?? ''}"`);
+    console.log(`  ${l.body.split('\n')[0]?.slice(0, 200) ?? ''}`);
+  }
+  console.log(`\nApprove: secagent kb review --approve <id> --by <your name>    Reject: secagent kb review --reject <id>`);
+  return 0;
+}
+
+async function runKb(args: string[], deps: CliDeps): Promise<number> {
+  if (args[0] === 'review') return runKbReview(args.slice(1), deps);
+  if (args.length !== 1 || args[0] !== 'index') throw new UsageError('Usage: secagent kb index | secagent kb review');
   const text = renderIndex(await loadLessons({ global: GLOBAL_LESSONS_DIR }), await loadCheckInstances(GLOBAL_CHECKS_DIR, CHECK_TYPES));
   const file = path.join(GLOBAL_KNOWLEDGE_DIR, 'INDEX.md');
   await writeFile(file, text, 'utf8');
@@ -409,7 +443,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
       case 'mcp':
         return await runMcp(rest, deps);
       case 'kb':
-        return await runKb(rest);
+        return await runKb(rest, deps);
       case 'accept':
         return await runAccept(rest, deps);
       case 'eval':

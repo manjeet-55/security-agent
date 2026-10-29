@@ -47,7 +47,7 @@ About 1,000 automated tests, including real HTTPS/TLS servers, real git reposito
 
 ## Limits and next steps
 
-- Checks are a fixed, reviewed catalog; there is no auto-learning yet. The design for a reviewed learning loop (propose a lesson with a source and quote, a person approves it) is in `docs/superpowers/specs/2026-10-28-secagent-design.md` §8 and not built.
+- Learning is reviewed, not automatic: an AI assistant can propose a lesson that quotes an allowlisted page word for word, and it stays pending until a person approves it. New check types are still written by people.
 - Server checks need the collector's output from a person with access to the server; secagent never logs in.
 - Dependency scanning covers npm (`package-lock.json`) only; other ecosystems are not checked yet.
 - No license has been chosen yet.

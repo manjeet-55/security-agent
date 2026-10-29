@@ -100,7 +100,8 @@ describe('secagent MCP server', () => {
     const dir = await makeProject();
     const mcp = await connectMcp({ projectDir: dir });
     const names = await mcp.tools();
-    expect(names.filter((n) => /write|set|add|edit|update|init|config|target|host_add/i.test(n))).toEqual([]);
+    // kb_write only writes pending lessons under .secagent/knowledge/lessons/ (its id cannot be a path); nothing writes project.yaml.
+    expect(names.filter((n) => /write|set|add|edit|update|init|config|target|host_add/i.test(n))).toEqual(['kb_write']);
   });
 });
 

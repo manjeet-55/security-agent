@@ -1,0 +1,29 @@
+# Sites the learning loop may fetch from and cite (fetch_source, kb_write). https only, exact host names.
+hosts:
+  - owasp.org
+  - cheatsheetseries.owasp.org
+  - developer.mozilla.org
+  - nginx.org
+  - httpd.apache.org
+  - ubuntu.com
+  - www.debian.org
+  - wiki.debian.org
+  - security-tracker.debian.org
+  - docs.github.com
+  - git-scm.com
+  - man.openbsd.org
+  - www.cisa.gov
+  - nvd.nist.gov
+  - osv.dev
+  - cwe.mitre.org
+  - nodejs.org
+  - expressjs.com
+  - docs.nestjs.com
+  - nextjs.org
+  - angular.dev
+  - docs.docker.com
+  - kubernetes.io
+  - letsencrypt.org
+  - docs.aws.amazon.com
+  - learn.microsoft.com
+  - cloud.google.com

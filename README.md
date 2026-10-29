@@ -50,7 +50,7 @@ A verdict, what to fix first, and for every finding: what was found, why it matt
 
 ## Knowledge base
 
-`knowledge/lessons/` holds short, sourced lessons from real remediations (for example: distro backports make version-banner CVE claims unreliable, a timeout from the wrong network proves nothing, third-party repositories are not covered by automatic updates). Each lesson is reviewed (`review: approved`) or not yet (`pending`). A project can add its own under `.secagent/knowledge/lessons/`, and records accepted risks in `.secagent/knowledge/exceptions.yaml` (owner, reason, expiry). An AI client reads them with `kb_search` and `kb_read`; `knowledge/INDEX.md` is the generated overview (`secagent kb index`).
+`knowledge/lessons/` holds short, sourced lessons from real remediations (for example: distro backports make version-banner CVE claims unreliable, a timeout from the wrong network proves nothing, third-party repositories are not covered by automatic updates). Each lesson is reviewed (`review: approved`) or not yet (`pending`). A project can add its own under `.secagent/knowledge/lessons/`, and records accepted risks in `.secagent/knowledge/exceptions.yaml` (owner, reason, expiry). An AI client reads them with `kb_search` and `kb_read`, and can propose new ones with `kb_write`: each must quote a page from an allowlisted reference site (`knowledge/sources.yaml`) word for word, and stays pending until a person approves it with `secagent kb review --approve <id> --by <name>` (or rejects it). `knowledge/INDEX.md` is the generated overview (`secagent kb index`).
 
 ## Accepting a risk
 
@@ -86,6 +86,7 @@ claude mcp add secagent -- secagent mcp --dir /path/to/your-project
 | `secagent learn` | Refresh CISA KEV and package advisories |
 | `secagent mcp [--dir]` | Serve the project to an AI client over MCP (stdio) |
 | `secagent accept <finding-id> --owner --reason --until` | Accept an open finding's risk until a date |
+| `secagent kb review [--approve <id> --by <name>] [--reject <id>]` | List, approve or reject lessons an AI assistant proposed |
 | `secagent kb index` | Regenerate `knowledge/INDEX.md` (maintainers) |
 
 `.secagent/project.yaml` lists the only websites and servers secagent will touch; the code checks read the project folder and its git history.

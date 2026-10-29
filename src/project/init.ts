@@ -26,6 +26,7 @@ external/
 evidence/
 findings/
 reports/
+knowledge/fetched/
 `;
 
 const NOTES = `# Project security notes

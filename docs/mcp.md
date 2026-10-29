@@ -42,6 +42,8 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 | `get_playbook` | The secagent playbook (also offered as the `security_review` prompt): scan, explain, fix, verify, report, learn |
 | `report_summary` | Adds a plain-language summary and proposals to the latest report, labelled as written by an AI assistant and not verified |
 | `kb_search` | Keyword search over the knowledge base: lessons from past remediations (global and the project's own) and the check catalog. Hits say whether they are approved or pending review. |
+| `fetch_source` | Fetches a page from an allowlisted reference site (`knowledge/sources.yaml`, https only), to cite in a lesson; the text is returned as untrusted |
+| `kb_write` | Proposes a project lesson that quotes a fetched page exactly; saved as pending until a person runs `secagent kb review --approve` |
 | `kb_read` | One lesson or check by id; `INDEX` is the one-line-per-entry overview, `notes` the project's notes, `exceptions` its accepted risks |
 
 ## What the assistant can and cannot do
