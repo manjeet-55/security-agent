@@ -72,6 +72,9 @@ describe('classifyOrigin', () => {
     'http://archive.ubuntu.com%2eevil.example/ubuntu noble/main amd64 Packages',
     'http://archive.ubuntu.com:abc/ubuntu noble/main amd64 Packages',
     'http://archive.ubuntu.com:80@evil.example/ubuntu noble/main amd64 Packages',
+    'http://evil.example#@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+    'http://evil.example?@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+    'http://evil.example[x]@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
     'http://[::1]/ubuntu noble/main amd64 Packages',
     'http:///ubuntu noble/main amd64 Packages',
     'archive.ubuntu.com/ubuntu noble/main amd64 Packages',
@@ -86,6 +89,9 @@ describe('classifyOrigin', () => {
     'http://archive.ubuntu.com:80/ubuntu noble/main amd64 Packages',
     'http://archive.ubuntu.com.:80/ubuntu noble/main amd64 Packages',
     'http://user:pw@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+    'http://user:p%40ss@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+    'http://user:p@ss@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+    'http://user:******@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
     'http://evil.example@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
   ])('%s is a distro repository', (source) => {
     expect(classifyOrigin(o(source), 'noble')).toEqual({ kind: 'distro', repo: source });

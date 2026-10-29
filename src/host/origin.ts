@@ -12,12 +12,15 @@ const DISTRO_HOST = /(^|\.)(ubuntu\.com|debian\.org)$/;
 type RepoKind = 'distro' | 'unknown' | 'third_party';
 
 const HOST_AND_PORT = /^([a-z0-9.-]+)(:\d+)?$/;
+/** What may precede the last `@` of the authority: RFC 3986 userinfo characters, plus `@` itself (a password may contain one). */
+const USERINFO = /^[a-z0-9._~%!$&'()*+,;=:@-]*$/i;
 
 /**
  * The host of an apt source URL, read literally: the text between `://` and the next `/`, without any userinfo (up to the last
  * `@`), lowercased, with one trailing `.` (the absolute form of a name) dropped. `undefined` when that text is not a plain
- * host name with an optional port. A URL parser is deliberately not used: the WHATWG one reads a backslash as a slash, so
- * `http://archive.ubuntu.com\.evil.example/` would pass for archive.ubuntu.com although apt does not fetch from there.
+ * host name with an optional port, or when the userinfo holds a character that cannot belong to it (`\`, `#`, `?`, `[`, ...).
+ * A URL parser is deliberately not used: the WHATWG one reads a backslash as a slash, so `http://archive.ubuntu.com\.evil.example/`
+ * would pass for archive.ubuntu.com although apt does not fetch from there.
  */
 function repoHost(url: string): string | undefined {
   const start = url.indexOf('://');
@@ -25,9 +28,9 @@ function repoHost(url: string): string | undefined {
   let authority = url.slice(start + 3);
   const end = authority.indexOf('/');
   if (end >= 0) authority = authority.slice(0, end);
-  if (authority.includes('\\')) return undefined;
-  authority = authority.slice(authority.lastIndexOf('@') + 1).toLowerCase();
-  const host = HOST_AND_PORT.exec(authority)?.[1];
+  const at = authority.lastIndexOf('@');
+  if (!USERINFO.test(authority.slice(0, Math.max(at, 0)))) return undefined;
+  const host = HOST_AND_PORT.exec(authority.slice(at + 1).toLowerCase())?.[1];
   if (host === undefined) return undefined;
   return host.endsWith('.') ? host.slice(0, -1) : host;
 }
