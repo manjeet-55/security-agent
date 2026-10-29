@@ -1,11 +1,15 @@
+import { parse, stringify } from 'yaml';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { formatScan, main, parseHostSpec, parseTargetSpec, UsageError } from '../src/cli.js';
 import { COLLECTOR_PATH } from '../src/host/collector.js';
 import { SnapshotStore } from '../src/host/store.js';
 import { initProject } from '../src/project/init.js';
-import { loadProject } from '../src/project/schema.js';
+import { loadProject, projectFile } from '../src/project/schema.js';
 import { fixtureAdvisories } from './helpers/advisories.js';
+import { repoWith } from './helpers/git.js';
+import { FAKE } from './helpers/secrets.js';
 import { FIXED_NOW } from './helpers/ctx.js';
 import { tempDir, writeFiles } from './helpers/tmp.js';
 
@@ -46,6 +50,62 @@ describe('main', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await main(['scan', '--no-ai', '--dir', await tempDir()])).toBe(1);
     expect(error).toHaveBeenCalledWith(expect.stringContaining('secagent init'));
+  });
+
+  describe('scan --only', () => {
+    async function leakyRepo(): Promise<string> {
+      const dir = await tempDir();
+      await repoWith(dir, { 'src/app.ts': `// config\nconst id = '${FAKE.awsKeyId}';\n` });
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(await main(['init', '--dir', dir, '--scan-label', 'office'])).toBe(0);
+      vi.restoreAllMocks();
+      return dir;
+    }
+
+    it('--no-ai scans the code and shows the file and line of a leak, never its value', async () => {
+      const dir = await leakyRepo();
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(await main(['scan', '--no-ai', '--dir', dir])).toBe(0);
+      const out = log.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(out).toContain('src/app.ts:2 aws-access-key-id');
+      expect(out).toContain('code-secrets-working-tree');
+      expect(out).not.toContain(FAKE.awsKeyId);
+    });
+
+    it.each([
+      [['--only', 'code']],
+      [['--only', 'code,web']],
+      [['--only', 'code', '--only', 'host']],
+    ])('accepts %j', async (flags) => {
+      const dir = await leakyRepo();
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(await main(['scan', '--no-ai', '--dir', dir, ...flags])).toBe(0);
+    });
+
+    it('--only code does not run the other groups', async () => {
+      const dir = await leakyRepo();
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(await main(['scan', '--no-ai', '--dir', dir, '--only', 'code'])).toBe(0);
+      expect(log.mock.calls.map((c) => c.join(' ')).join('\n')).toContain('4 check results');
+    });
+
+    it('rejects a group that does not exist, naming the ones that do', async () => {
+      const dir = await leakyRepo();
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(await main(['scan', '--no-ai', '--dir', dir, '--only', 'code,network'])).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringMatching(/--only .*code.*web.*host/s));
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('network'));
+    });
+
+    it('says so when --only code is asked for but code.enabled is false', async () => {
+      const dir = await leakyRepo();
+      const file = projectFile(dir);
+      const config = parse(await readFile(file, 'utf8'));
+      await writeFile(file, stringify({ ...config, code: { ...config.code, enabled: false } }), 'utf8');
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(await main(['scan', '--no-ai', '--dir', dir, '--only', 'code'])).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('code.enabled'));
+    });
   });
 
   it('rejects unknown commands and unknown flags', async () => {

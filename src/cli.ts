@@ -19,7 +19,7 @@ import { SnapshotStore } from './host/store.js';
 import { initProject } from './project/init.js';
 import { loadProject, ProjectConfigError } from './project/schema.js';
 import { Scope, ScopeError } from './project/scope.js';
-import { scanNoAi } from './scan/no-ai.js';
+import { SCAN_GROUPS, scanNoAi, type ScanGroup } from './scan/no-ai.js';
 import { SEVERITY_RANK } from './types.js';
 import { verifyClaim, type ClaimResult } from './verify/claim.js';
 
@@ -42,6 +42,7 @@ Commands:
   scan    Run every check against the targets and hosts in project.yaml
             --dir <path>
             --no-ai                deterministic checks only, no AI triage
+            --only <groups>        run only code, web or host (repeatable or comma-separated); the rest of the last scan is kept
   collector  Print the read-only host collector script (stdout) and how to run it (stderr)
             --dir <path>   --host <name>   --out <file>
   snapshot add  Validate and store collector output for a host
@@ -113,18 +114,39 @@ async function runInit(args: string[]): Promise<number> {
   return 0;
 }
 
+/** `--only code,web --only host` → [code, web, host]. Anything else is a usage error that names the groups there are. */
+function parseGroups(flags: readonly string[]): ScanGroup[] {
+  const groups: ScanGroup[] = [];
+  for (const name of flags.flatMap((f) => f.split(',')).map((g) => g.trim())) {
+    if (!(SCAN_GROUPS as readonly string[]).includes(name)) {
+      throw new UsageError(`--only takes ${SCAN_GROUPS.join(', ')} (got "${name}"); repeat the flag or separate groups with commas`);
+    }
+    if (!groups.includes(name as ScanGroup)) groups.push(name as ScanGroup);
+  }
+  return groups;
+}
+
 async function runScan(args: string[], deps: CliDeps): Promise<number> {
   const { values } = parseArgs({
     args,
     strict: true,
-    options: { dir: { type: 'string', default: '.' }, 'no-ai': { type: 'boolean', default: false } },
+    options: { dir: { type: 'string', default: '.' }, 'no-ai': { type: 'boolean', default: false }, only: { type: 'string', multiple: true } },
   });
   if (!values['no-ai']) {
     throw new UsageError(
       'AI-triaged scans run inside your AI client through the secagent MCP server. For a deterministic scan without AI, run: secagent scan --no-ai',
     );
   }
-  const record = await scanNoAi(path.resolve(values.dir), { ...(deps.now ? { now: deps.now } : {}), ...(deps.advisories ? { advisories: deps.advisories } : {}) });
+  const dir = path.resolve(values.dir);
+  const only = parseGroups(values.only ?? []);
+  if (only.length === 1 && only[0] === 'code' && !(await loadProject(dir)).code.enabled) {
+    throw new UsageError('--only code was asked for, but the code checks are turned off (code.enabled is false in project.yaml)');
+  }
+  const record = await scanNoAi(dir, {
+    ...(only.length > 0 ? { only } : {}),
+    ...(deps.now ? { now: deps.now } : {}),
+    ...(deps.advisories ? { advisories: deps.advisories } : {}),
+  });
   for (const line of formatScan(record)) console.log(line);
   return 0;
 }
