@@ -35,6 +35,7 @@ export const NO_ADVISORIES: Advisories = {
   osv: { affected: unstubbedAdvisory, vulnsFor: unstubbedAdvisory, vuln: unstubbedAdvisory },
   ubuntu: { cve: unstubbedAdvisory },
   kev: { catalog: unstubbedAdvisory },
+  track: async (fn) => ({ value: await fn(), freshness: undefined }),
 };
 
 /** A context with one web target "app" (https://app.example.com) and one host "web-1" (203.0.113.10). */

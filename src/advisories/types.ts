@@ -58,6 +58,10 @@ export interface Advisories {
   osv: OsvSource;
   ubuntu: UbuntuSource;
   kev: KevSource;
-  /** Oldest `as_of` and OR of `stale` over the advisory data served since the last call; resets on read. */
-  freshness?(): Freshness | undefined;
+  /**
+   * Runs `fn` and reports the freshness (oldest `as_of`, OR of `stale`) of exactly the advisory data read inside its async
+   * scope, KEV included. Concurrent calls are isolated from each other. Required on purpose: a source that cannot say how
+   * fresh its data is must return `freshness: undefined` rather than leave the method out.
+   */
+  track<T>(fn: () => Promise<T>): Promise<{ value: T; freshness: Freshness | undefined }>;
 }

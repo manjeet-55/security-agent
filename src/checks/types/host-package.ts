@@ -159,9 +159,8 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
       );
     }
     const skipped = skippedSourceCount(snapshot, distro.codename);
-    ctx.advisories.freshness?.();
-    const { fixable, unfixed, kev_available } = await findFixable(ctx.advisories, distro.ecosystem, sources);
-    const fresh = ctx.advisories.freshness?.();
+    const { value: found, freshness: fresh } = await ctx.advisories.track(() => findFixable(ctx.advisories, distro.ecosystem, sources));
+    const { fixable, unfixed, kev_available } = found;
     const evidence_id = await ctx.evidence.put('advisory', name, `${sources.length} packages checked against ${distro.ecosystem}`, {
       ...base,
       ecosystem: distro.ecosystem,

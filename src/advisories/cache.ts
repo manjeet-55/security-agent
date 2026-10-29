@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -12,6 +13,11 @@ export const MAX_STALE_MS = 30 * DAY;
 /** A `fetched_at` further than this in the future is clock skew or tampering and counts as expired. */
 const MAX_FUTURE_MS = 3_600_000;
 
+/** The advisory data read inside one `track` call; a nested call also reports to the scope around it. */
+interface Scope {
+  used: Freshness | undefined;
+  parent: Scope | undefined;
+}
 
 export interface Cached<T> {
   value: T;
@@ -25,27 +31,33 @@ export function defaultCacheDir(): string {
 
 /** File cache per source. Fresh entries are served as-is; on fetch failure a stale entry is served; with none, ADVISORY_UNAVAILABLE. */
 export class AdvisoryCache {
-  private used: Freshness | undefined;
+  private readonly scope = new AsyncLocalStorage<Scope>();
 
   constructor(
     readonly dir: string = defaultCacheDir(),
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  /** Freshness of everything served since the last call (oldest `as_of`, OR of `stale`), then resets. */
-  freshness(): Freshness | undefined {
-    const f = this.used;
-    this.used = undefined;
-    return f;
+  /**
+   * Runs `fn` and reports the freshness of exactly the advisory data read inside its async scope: the oldest `as_of` and the
+   * OR of `stale`, across every `getOrFetch` (and `record`) it awaits. Concurrent calls each get their own scope, so one
+   * caller's reads never show up in another's result.
+   */
+  async track<T>(fn: () => Promise<T>): Promise<{ value: T; freshness: Freshness | undefined }> {
+    const scope: Scope = { used: undefined, parent: this.scope.getStore() };
+    const value = await this.scope.run(scope, fn);
+    return { value, freshness: scope.used };
   }
 
-  /** Registers `c` as used by the current call; also for results a client memoises in memory. */
+  /** Registers `c` as read by the surrounding `track` scope, if any; also for results a client memoises in memory. */
   record<T>(c: Cached<T>): Cached<T> {
-    const prev = this.used;
-    this.used = {
-      as_of: prev === undefined || Date.parse(c.fetched_at) < Date.parse(prev.as_of) ? c.fetched_at : prev.as_of,
-      stale: (prev?.stale ?? false) || c.stale,
-    };
+    for (let scope = this.scope.getStore(); scope !== undefined; scope = scope.parent) {
+      const prev = scope.used;
+      scope.used = {
+        as_of: prev === undefined || Date.parse(c.fetched_at) < Date.parse(prev.as_of) ? c.fetched_at : prev.as_of,
+        stale: (prev?.stale ?? false) || c.stale,
+      };
+    }
     return c;
   }
 

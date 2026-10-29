@@ -5,7 +5,8 @@ import { EvidenceStore } from '../../src/evidence/store.js';
 import { decodeSnapshot, type HostSnapshot } from '../../src/host/snapshot.js';
 import { validateProject } from '../../src/project/schema.js';
 import { verifyClaim } from '../../src/verify/claim.js';
-import { fixtureAdvisories, staleAdvisories } from '../helpers/advisories.js';
+import { createAdvisories } from '../../src/advisories/index.js';
+import { fixtureAdvisories, fixtureFetch, staleAdvisories } from '../helpers/advisories.js';
 import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection, withSourceVersion, withVendorOpenssh } from '../helpers/snapshots.js';
 import { tempDir } from '../helpers/tmp.js';
 
@@ -308,5 +309,19 @@ describe('verifyClaim advisory freshness', () => {
     const advisories = await staleAdvisories(await tempDir(), (a) => a.ubuntu.cve('CVE-2024-6387'));
     const r = await verify(old, 'CVE-2024-6387', { advisories });
     expect(r).toMatchObject({ verdict: 'vulnerable', stale: true });
+  });
+
+  it('counts a stale KEV catalog in the reported as_of and stale flag, and blocks dismissal', async () => {
+    const dir = await tempDir();
+    const now = new Date('2026-10-28T15:00:00Z');
+    await createAdvisories({ cacheDir: dir, fetchJson: fixtureFetch(), now: () => new Date(now.getTime() - 20 * 86_400_000) }).kev.catalog();
+    await createAdvisories({ cacheDir: dir, fetchJson: fixtureFetch(), now: () => now }).ubuntu.cve('CVE-2024-6387');
+    const offline = async (): Promise<never> => {
+      throw new Error('offline');
+    };
+    const advisories = createAdvisories({ cacheDir: dir, fetchJson: offline, now: () => now });
+    const r = await verify(fixtureSnapshot('ubuntu-24-04'), 'CVE-2024-6387', { advisories });
+    expect(r).toMatchObject({ verdict: 'unverifiable', stale: true, as_of: '2026-10-08T15:00:00.000Z', kev: false });
+    expect(r.reason).toContain('advisory data is stale (as of 2026-10-08)');
   });
 });

@@ -102,18 +102,4 @@ describe('AdvisoryCache', () => {
     await expect(cache.getOrFetch('kev', 'k', 1000 * 86_400, offline)).rejects.toMatchObject({ code: 'ADVISORY_UNAVAILABLE' });
     expect(await cache.getOrFetch('kev', 'k', 1000 * 86_400, async () => 'new')).toMatchObject({ value: 'new', stale: false });
   });
-
-  it('freshness() reports the oldest as_of and any stale use, then resets', async () => {
-    let now = new Date('2026-10-28T00:00:00Z');
-    const cache = new AdvisoryCache(await tempDir(), () => now);
-    await cache.getOrFetch('osv', 'a', 1000, async () => 1);
-    cache.freshness();
-    now = new Date(now.getTime() + 5000);
-    await cache.getOrFetch('osv', 'b', 1000, async () => 2);
-    await cache.getOrFetch('osv', 'a', 1000, async () => {
-      throw new Error('offline');
-    });
-    expect(cache.freshness()).toEqual({ as_of: '2026-10-28T00:00:00.000Z', stale: true });
-    expect(cache.freshness()).toBeUndefined();
-  });
 });

@@ -14,6 +14,6 @@ export function createAdvisories(opts: { cacheDir?: string; fetchJson?: FetchJso
     osv: new OsvClient(fetchJson, cache),
     ubuntu: new UbuntuCveClient(fetchJson, cache),
     kev: new KevClient(fetchJson, cache, opts.now),
-    freshness: () => cache.freshness(),
+    track: (fn) => cache.track(fn),
   };
 }

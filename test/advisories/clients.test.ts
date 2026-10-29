@@ -70,11 +70,10 @@ describe('KevClient', () => {
     const cache = new AdvisoryCache(await tempDir(), () => now);
     const kev = new KevClient(fetchJson, cache, () => now);
     await kev.catalog();
-    cache.freshness();
     now = new Date(now.getTime() + 3_600_000);
-    await kev.catalog();
+    const memoised = await cache.track(() => kev.catalog());
     expect(fetchJson.calls).toHaveLength(1);
-    expect(cache.freshness()).toEqual({ as_of: '2026-10-28T00:00:00.000Z', stale: false });
+    expect(memoised.freshness).toEqual({ as_of: '2026-10-28T00:00:00.000Z', stale: false });
     now = new Date(now.getTime() + 86_400_000);
     await kev.catalog();
     expect(fetchJson.calls).toHaveLength(2);

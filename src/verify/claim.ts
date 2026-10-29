@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { distroOf } from '../advisories/distro.js';
 import { fixedVersionFor } from '../advisories/osv.js';
-import type { Advisories, Freshness } from '../advisories/types.js';
+import type { Advisories } from '../advisories/types.js';
 import type { EvidenceStore } from '../evidence/store.js';
 import { ObservationError } from '../checks/errors.js';
 import { aptListsEmpty, classifyOrigin } from '../host/origin.js';
@@ -206,14 +206,42 @@ async function judge(snap: HostSnapshot, cve: string, advisories: Advisories, on
   return { packages, reason: notInstalledReason(names), source_url };
 }
 
+/** Everything verifyClaim reads from the advisory sources, so that one `track` scope covers all of it (KEV included). */
+interface Read {
+  judged?: Judgement;
+  judgeError?: ObservationError;
+  /** `null` when the CISA KEV catalog was unavailable. */
+  kev: boolean | null;
+}
+
 /** Deterministic verdict on a third-party scanner's claim that `cve` affects `host` (spec §7.1). */
 export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package?: string }): Promise<ClaimResult> {
   const cve = claim.cve.trim().toUpperCase();
   if (!/^CVE-\d{4}-\d{4,}$/.test(cve)) throw new Error(`Not a CVE id: ${claim.cve}`);
   const now = deps.now ?? (() => new Date());
   const stored = await deps.snapshots.latest(deps.host.name);
-  deps.advisories.freshness?.();
-  let fresh: Freshness | undefined;
+
+  // The freshness reported is that of exactly the data this call read, even when other calls share the same advisory sources.
+  const { value: read, freshness: fresh } = await deps.advisories.track(async (): Promise<Read> => {
+    let judged: Judgement | undefined;
+    let judgeError: ObservationError | undefined;
+    if (stored) {
+      try {
+        judged = await judge(stored.snapshot, cve, deps.advisories, sourceFilter(stored.snapshot, claim.package));
+      } catch (err) {
+        if (!(err instanceof ObservationError)) throw err;
+        judgeError = err;
+      }
+    }
+    let kev: boolean | null = false;
+    try {
+      kev = (await deps.advisories.kev.catalog()).has(cve);
+    } catch (err) {
+      if (!(err instanceof ObservationError)) throw err;
+      kev = null;
+    }
+    return { ...(judged ? { judged } : {}), ...(judgeError ? { judgeError } : {}), kev };
+  });
 
   let packages: PackageVerdict[] = [];
   let reason: string;
@@ -225,10 +253,8 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
   } else {
     snapshot = path.basename(stored.file);
     const snap = stored.snapshot;
-    try {
-      const judged = await judge(snap, cve, deps.advisories, sourceFilter(snap, claim.package));
-      ({ packages, reason, source_url } = judged);
-      fresh = deps.advisories.freshness?.();
+    if (read.judged) {
+      ({ packages, reason, source_url } = read.judged);
       if (fresh?.stale) {
         const asOf = fresh.as_of.slice(0, 10);
         packages = downgradeSafe(packages, () => `advisory data is stale (as of ${asOf})`);
@@ -246,22 +272,13 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
         reason += ` Note: the snapshot is dated ${snap.collected_at}, in the future.`;
       }
       verdict = packages.length > 0 ? overall(packages) : 'unverifiable';
-    } catch (err) {
-      if (!(err instanceof ObservationError)) throw err;
-      packages = [];
-      verdict = 'unverifiable';
-      reason = `Could not judge ${cve}: ${err.message}`;
+    } else {
+      reason = `Could not judge ${cve}: ${read.judgeError?.message ?? 'no result'}`;
     }
   }
 
-  let kev: boolean | null = false;
-  try {
-    kev = (await deps.advisories.kev.catalog()).has(cve);
-  } catch (err) {
-    if (!(err instanceof ObservationError)) throw err;
-    kev = null;
-    reason += ' (CISA KEV was unavailable.)';
-  }
+  const kev = read.kev;
+  if (kev === null) reason += ' (CISA KEV was unavailable.)';
 
   const asOf = fresh ? { as_of: fresh.as_of, stale: fresh.stale } : {};
   const evidence_id = await deps.evidence.put('advisory', deps.host.name, `verify_claim ${cve}: ${verdict}`, {
