@@ -208,6 +208,19 @@ describe('main', () => {
     });
   });
 
+  it('eval compares the latest scan with expected statuses and exits 1 on a difference', async () => {
+    const dir = await tempDir();
+    await repoWith(dir, { 'src/app.ts': `const id = '${FAKE.awsKeyId}';\n` });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await main(['init', '--dir', dir])).toBe(0);
+    expect(await main(['scan', '--no-ai', '--only', 'code', '--dir', dir], { now: () => FIXED_NOW })).toBe(0);
+    await writeFile(path.join(dir, 'good.yaml'), 'findings:\n  code-secrets-working-tree@code: open\n  code-env-files-tracked@code: pass\n');
+    await writeFile(path.join(dir, 'bad.yaml'), 'findings:\n  code-secrets-working-tree@code: [fixed, accepted_risk]\n');
+    expect(await main(['eval', path.join(dir, 'good.yaml'), '--dir', dir])).toBe(0);
+    expect(await main(['eval', path.join(dir, 'bad.yaml'), '--dir', dir])).toBe(1);
+    expect(log).toHaveBeenCalledWith('DIFF  code-secrets-working-tree@code  expected fixed or accepted_risk, got open');
+  });
+
   it('kb needs the index subcommand', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await main(['kb'])).toBe(1);

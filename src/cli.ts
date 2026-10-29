@@ -24,6 +24,7 @@ import { createTtyPrompter, type Prompter } from './ui/prompt.js';
 import { createStyle } from './ui/style.js';
 import { runWizard } from './wizard/run.js';
 import { runMcpStdio } from './mcp/server.js';
+import { evaluate, EvalError } from './eval.js';
 import { acceptRisk } from './kb/accept.js';
 import { renderIndex } from './kb/index-md.js';
 import { KbError } from './kb/lesson.js';
@@ -71,6 +72,8 @@ Commands:
             --dir <path>
   accept     Accept the risk of an open finding until a date (a person's decision; the next scan reports it as accepted)
             <finding-id>   --owner <name>   --reason <text>   --until <YYYY-MM-DD>   --dir <path>
+  eval       Compare the latest scan with an expected-results file; exit 1 on any difference
+            <expected.yaml>   --dir <path>
   kb index   Regenerate knowledge/INDEX.md from the lessons and checks (for maintainers)
   mcp        Serve this project to an AI client (MCP over stdio): run_scan, get_findings, get_report, get_evidence, verify_claim
             --dir <path>
@@ -199,6 +202,16 @@ async function runAccept(args: string[], deps: CliDeps): Promise<number> {
   const entry = await acceptRisk(path.resolve(values.dir), { findingId, owner: values.owner, reason: values.reason, until: values.until }, deps.now ? deps.now() : new Date());
   console.log(`Accepted ${entry.finding_id} until ${entry.expires} (${entry.owner}). Scan again to update the report; it will list this under Accepted risks, and it counts as open again after that date.`);
   return 0;
+}
+
+async function runEval(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({ args, strict: true, allowPositionals: true, options: { dir: { type: 'string', default: '.' } } });
+  if (positionals.length !== 1) throw new UsageError('Usage: secagent eval <expected.yaml> [--dir <path>]');
+  const rows = await evaluate(path.resolve(values.dir), path.resolve(positionals[0] as string));
+  for (const r of rows) console.log(`${r.ok ? 'ok  ' : 'DIFF'}  ${r.id}  expected ${r.expected.join(' or ')}, got ${r.actual}`);
+  const bad = rows.filter((r) => !r.ok).length;
+  console.log(`${rows.length - bad} of ${rows.length} as expected`);
+  return bad === 0 ? 0 : 1;
 }
 
 async function runKb(args: string[]): Promise<number> {
@@ -399,6 +412,8 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
         return await runKb(rest);
       case 'accept':
         return await runAccept(rest, deps);
+      case 'eval':
+        return await runEval(rest);
       case undefined:
         if (isTerminal(deps)) return await runStart(rest, deps);
         console.log(USAGE);
@@ -424,6 +439,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
       e instanceof CatalogError ||
       e instanceof ScopeError ||
       e instanceof KbError ||
+      e instanceof EvalError ||
       e instanceof ObservationError
     ) {
       console.error(e.message);
