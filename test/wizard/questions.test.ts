@@ -157,6 +157,19 @@ describe('askPlan', () => {
       expect(plan?.snapshots).toEqual([]);
     });
 
+    it('the review screen says server scans look up package names and versions in public advisory databases, and never claims nothing is sent', async () => {
+      const p = new ScriptedPrompter([undefined, ['host'], 'web-1', '203.0.113.10', 'prod', false, '', false, 'office', true]);
+      await askPlan(p, deps());
+      const review = p.notes.find((n) => n.startsWith('Here is what I will do')) ?? '';
+      expect(review).toContain('public advisory databases (OSV, Ubuntu Security, CISA)');
+      expect(review).toContain('only package names and versions');
+      expect(review).not.toContain('nothing is sent anywhere');
+      expect(review).toContain('Your files and secrets are never sent anywhere.');
+      const web = new ScriptedPrompter([undefined, ['web'], 'https://portal.example.com', 'web', 'prod', false, 'office', true]);
+      await askPlan(web, deps());
+      expect(web.notes.find((n) => n.startsWith('Here is what I will do'))).not.toContain('advisory databases');
+    });
+
     it('rejects a server name that is not an id, and a name used twice', async () => {
       const p = new ScriptedPrompter([undefined, ['host'], 'Web 1', 'web-1', '203.0.113.10', 'prod', false, '', true, 'web-1', 'web-2', '203.0.113.11', 'prod', false, '', false, 'office', true]);
       const plan = await askPlan(p, deps());

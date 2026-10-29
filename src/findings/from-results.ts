@@ -6,16 +6,32 @@ import { selectFix } from './fix.js';
 import { resultKey } from './ids.js';
 import type { Finding, ScanRecord } from './schema.js';
 
+const acceptedNote = (e: { owner: string; expires: string; reason: string }): string => `Accepted risk by ${e.owner} until ${e.expires}: ${e.reason}. `;
+const expiredNote = (e: { owner: string; expires: string }): string => `An earlier exception (${e.owner}, until ${e.expires}) has expired, so this is open again. `;
+
 /** An open finding covered by an exception becomes an accepted risk; one whose exception lapsed stays open and says so. */
 function withException(f: Finding, exceptions: readonly RiskException[], now: Date): Finding {
   if (f.status !== 'open') return f;
   const found = exceptionFor(exceptions, f.id, now);
   if (!found) return f;
   const exception = { owner: found.owner, reason: found.reason, expires: found.expires, expired: found.expired };
-  if (found.expired) {
-    return { ...f, exception, reasoning: `An earlier exception (${found.owner}, until ${found.expires}) has expired, so this is open again. ${f.reasoning}` };
-  }
-  return { ...f, status: 'accepted_risk', exception, reasoning: `Accepted risk by ${found.owner} until ${found.expires}: ${found.reason}. ${f.reasoning}` };
+  if (found.expired) return { ...f, exception, reasoning: `${expiredNote(found)}${f.reasoning}` };
+  return { ...f, status: 'accepted_risk', exception, reasoning: `${acceptedNote(found)}${f.reasoning}` };
+}
+
+/**
+ * Exceptions follow the calendar, not the checks, so findings a partial scan carries over from an earlier scan are judged again:
+ * an accepted risk whose date has passed (or whose entry was removed) is open again, an open finding that an exception now
+ * covers is accepted, and an entry that changed is followed. Findings in any other status are returned as they are.
+ */
+export function reapplyExceptions(findings: readonly Finding[], exceptions: readonly RiskException[], now: Date): Finding[] {
+  return findings.map((f) => {
+    if (f.status !== 'accepted_risk') return withException(f, exceptions, now);
+    const prefix = f.exception ? acceptedNote(f.exception) : '';
+    const { exception: _accepted, ...rest } = f;
+    const reopened: Finding = { ...rest, status: 'open', reasoning: prefix && f.reasoning.startsWith(prefix) ? f.reasoning.slice(prefix.length) : f.reasoning };
+    return withException(reopened, exceptions, now);
+  });
 }
 
 /**

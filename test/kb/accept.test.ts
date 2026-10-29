@@ -31,6 +31,19 @@ describe('acceptRisk', () => {
     expect((await loadExceptions(dir)).map((e) => e.finding_id)).toEqual(['hdr-hsts@portal', 'code-leak@code']);
   });
 
+  it.each([
+    'needs: a review # not a comment',
+    'quotes " and \' and a colon: here, [brackets] {braces} - dash',
+    'two lines\nsecond line, still the reason',
+    'ünïcödé and emoji 🔐 in the reason',
+    '- starts like a list item',
+  ])('keeps awkward text in the owner and reason intact, so the file still loads: %j', async (reason) => {
+    const dir = await projectWithScan();
+    await acceptRisk(dir, { ...OK, owner: 'O\'Brien: "lead" # 1', reason }, NOW);
+    const [entry] = await loadExceptions(dir);
+    expect(entry).toMatchObject({ finding_id: 'hdr-hsts@portal', owner: 'O\'Brien: "lead" # 1', reason: reason.trim(), expires: '2026-12-31' });
+  });
+
   it('creates the file when it is missing', async () => {
     const dir = await projectWithScan();
     await writeFiles(dir, { '.secagent/knowledge/exceptions.yaml': '' });

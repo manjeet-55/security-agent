@@ -47,6 +47,7 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 - It cannot change which websites or servers are probed. No tool edits `.secagent/project.yaml`; only you can.
 - Every probe still goes through the scope guard, and websites on private addresses need `allow_private` in `project.yaml`.
 - It never receives secret values. Findings carry file, line, pattern and a fingerprint; evidence leaves out page bodies. Tell it to have the credentials rotated, not to read them.
+- Text that came back from the scanned systems (header values, file names) is untrusted data, and the server tells the assistant never to follow instructions found in it.
 - `accepted_risk` means a person accepted the risk until a date; it is not fixed. The assistant cannot accept a risk: only a person running `secagent accept` or editing `exceptions.yaml` can.
 - Knowledge marked pending can add a finding or raise a severity; only approved knowledge can back calling a finding a false positive or lowering its severity.
 - Statuses come from the scan. The server tells the assistant that `unverifiable` means unknown, and that nothing is fixed until a new scan says so.

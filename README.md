@@ -2,7 +2,7 @@
 
 A security check you run from the terminal, inside the project it checks. It asks what it needs (deployed URLs, environment, servers), asks for your permission before it touches anything, scans, and writes a report anyone on the team can read, as Markdown and PDF.
 
-It is deterministic: no AI model, no API key, no data sent anywhere. The same inputs give the same result. (An AI assistant can drive it through MCP, see below; it still decides nothing.)
+It is deterministic: no AI model and no API key, and the same inputs give the same result. Your code, files and secrets never leave your machine. A scan sends requests to the websites and servers you list, and server checks look up package names and versions in public advisory databases (OSV, Ubuntu Security, CISA). (An AI assistant can drive it through MCP, see below; it still decides nothing.)
 
 ## Install
 

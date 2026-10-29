@@ -233,6 +233,10 @@ describe('buildReport', () => {
     expect(cli).toContain('Servers: web-1 (203.0.113.10, prod)');
     expect(cli).toContain('Run from the command line.');
     expect(cli).toContain('A check that could not run is never counted as passed.');
+    expect(cli.find((l) => l.startsWith('Method:'))).toContain('package names and versions');
+    const codeOnly = fixtureRecord();
+    const noHosts = build({ results: codeOnly.results.filter((r) => r.target !== 'web-1'), findings: codeOnly.findings.filter((f) => f.target !== 'web-1') });
+    expect((section(noHosts, 'About this scan')[0] as Extract<Block, { kind: 'list' }>).items.map(text).find((l) => l.startsWith('Method:'))).not.toContain('advisory');
     expect(cli).toContain('Secret values are never shown, only the file, line and a fingerprint.');
     expect(about(build({ consent_at: '2026-10-28T09:59:00.000Z' }))).toContain('Scope confirmed by the person running the scan on 2026-10-28 09:59 UTC.');
     expect(about(build({ trigger: 'mcp' }))).toContain('Run by an AI assistant through the MCP server, for the websites and servers listed in project.yaml.');

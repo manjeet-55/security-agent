@@ -200,6 +200,28 @@ describe('scanNoAi', () => {
       await expect(scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T2, only: ['code'] })).rejects.toThrow(/exceptions\.yaml/);
     });
 
+    it('a partial scan re-checks exceptions on the findings it carries over: an accepted risk that has expired is open again', async () => {
+      const dir = await leakyProject({ targets: [{ id: 'app', url: 'https://app.example.com', type: 'web', env: 'prod' }] });
+      const net: NetClient = {
+        http: async (url) => fakeObs({ url, bodySnippet: '<html></html>' }),
+        tls: async () => { throw new NetError('ECONNREFUSED', 'refused'); },
+        tcp: async () => 'closed',
+      };
+      await writeFile(
+        `${dir}/.secagent/knowledge/exceptions.yaml`,
+        'exceptions:\n  - finding_id: hdr-hsts@app\n    owner: dev-lead\n    reason: rolls out with the new proxy\n    expires: "2026-11-01"\n',
+      );
+      const full = await scanNoAi(dir, { net, now: T1 });
+      expect(full.findings.find((f) => f.id === 'hdr-hsts@app')?.status).toBe('accepted_risk');
+
+      const later = () => new Date('2026-11-05T10:00:00.000Z');
+      const partial = await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: later, only: ['code'] });
+      const carried = partial.findings.find((f) => f.id === 'hdr-hsts@app');
+      expect(carried).toMatchObject({ status: 'open', exception: { expired: true } });
+      expect(partial.diff.new).toContain('hdr-hsts@app');
+      expect(partial.groups_run).toEqual(['code']);
+    });
+
     it('skips the code checks when code.enabled is false', async () => {
       const dir = await leakyProject();
       await setCode(dir, { enabled: false });

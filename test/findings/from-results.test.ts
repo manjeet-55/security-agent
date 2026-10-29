@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CheckInstanceSchema, type CheckInstance } from '../../src/checks/catalog.js';
 import { diffScans } from '../../src/findings/diff.js';
-import { resultsToFindings } from '../../src/findings/from-results.js';
+import { reapplyExceptions, resultsToFindings } from '../../src/findings/from-results.js';
 import type { ScanRecord } from '../../src/findings/schema.js';
 import type { RiskException } from '../../src/kb/exceptions.js';
 import type { CheckResult, Outcome, Severity } from '../../src/types.js';
@@ -140,6 +140,42 @@ describe('accepted risks (exceptions.yaml)', () => {
     const reopened = resultsToFindings([result('unverifiable')], INSTANCES, previousWith('accepted_risk'), {}, NOW, [EXPIRED])[0];
     expect(reopened).toMatchObject({ status: 'open', exception: { expired: true } });
     expect(reopened?.reasoning).toContain('Not re-verified');
+  });
+});
+
+describe('reapplyExceptions (findings carried over by a partial scan)', () => {
+  const T1 = new Date('2026-10-27T10:00:00.000Z');
+  const ACTIVE: RiskException = { finding_id: 'hdr-hsts@app', owner: 'dev-lead', reason: 'rolls out with the new proxy', expires: '2026-12-31' };
+  const [open] = resultsToFindings([result('fail')], INSTANCES, undefined, {}, T1);
+  const [accepted] = resultsToFindings([result('fail')], INSTANCES, undefined, {}, T1, [ACTIVE]);
+
+  it('keeps an accepted risk accepted while its exception holds, and follows a change to the entry', () => {
+    expect(reapplyExceptions([accepted!], [ACTIVE], NOW)[0]).toEqual(accepted);
+    const changed = reapplyExceptions([accepted!], [{ ...ACTIVE, owner: 'cto' }], NOW)[0];
+    expect(changed).toMatchObject({ status: 'accepted_risk', exception: { owner: 'cto' } });
+    expect(changed?.reasoning.match(/Accepted risk by/g)).toHaveLength(1);
+  });
+
+  it('reopens an accepted risk whose date has passed, says so, and drops the acceptance text from the reasoning', () => {
+    const later = new Date('2027-01-05T10:00:00.000Z');
+    const [f] = reapplyExceptions([accepted!], [ACTIVE], later);
+    expect(f).toMatchObject({ status: 'open', exception: { owner: 'dev-lead', expired: true } });
+    expect(f?.reasoning).toContain('has expired, so this is open again');
+    expect(f?.reasoning).not.toContain('Accepted risk by');
+    expect(f?.reasoning).toContain('No AI triage');
+  });
+
+  it('reopens an accepted risk whose entry was deleted, with nothing left of the acceptance', () => {
+    const [f] = reapplyExceptions([accepted!], [], NOW);
+    expect(f).toMatchObject({ status: 'open' });
+    expect(f?.exception).toBeUndefined();
+    expect(f?.reasoning).not.toContain('Accepted risk by');
+  });
+
+  it('accepts an open finding that an exception now covers, and leaves every other status alone', () => {
+    expect(reapplyExceptions([open!], [ACTIVE], NOW)[0]).toMatchObject({ status: 'accepted_risk', exception: { owner: 'dev-lead' } });
+    const others = ['fixed', 'unverifiable', 'false_positive'].map((status) => ({ ...open!, status: status as 'fixed' }));
+    expect(reapplyExceptions(others, [ACTIVE], NOW)).toEqual(others);
   });
 });
 

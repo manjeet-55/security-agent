@@ -7,7 +7,7 @@ import { CHECK_TYPES } from '../checks/registry.js';
 import { applicableInstances, runChecks } from '../checks/runner.js';
 import { EvidenceStore } from '../evidence/store.js';
 import { diffScans } from '../findings/diff.js';
-import { resultsToFindings } from '../findings/from-results.js';
+import { reapplyExceptions, resultsToFindings } from '../findings/from-results.js';
 import type { ScanRecord } from '../findings/schema.js';
 import { FindingsStore } from '../findings/store.js';
 import { loadExceptions } from '../kb/exceptions.js';
@@ -80,13 +80,15 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
   const previous = await store.latest();
   const scannedAt = now();
   const byId = new Map(instances.map((i) => [i.id, i] as const));
-  const findings = resultsToFindings(results, byId, previous, project.stack, scannedAt, await loadExceptions(projectDir));
+  const exceptions = await loadExceptions(projectDir);
+  const findings = resultsToFindings(results, byId, previous, project.stack, scannedAt, exceptions);
 
   // A partial scan says nothing about the groups it skipped: they stay as the last scan left them.
   const ranKinds = new Set<SubjectKind>([...groups].flatMap((g) => GROUP_KINDS[g]));
   const skipped = (checkId: string): boolean => !byId.get(checkId)?.applies_to.some((k) => ranKinds.has(k));
   const keptResults = groups.size === SCAN_GROUPS.length ? [] : (previous?.results ?? []).filter((r) => skipped(r.check_id));
-  const keptFindings = groups.size === SCAN_GROUPS.length ? [] : (previous?.findings ?? []).filter((f) => skipped(f.check_id));
+  const keptFindings =
+    groups.size === SCAN_GROUPS.length ? [] : reapplyExceptions((previous?.findings ?? []).filter((f) => skipped(f.check_id)), exceptions, scannedAt);
   const allResults = [...keptResults, ...results];
   const allFindings = [...keptFindings, ...findings];
   const record: ScanRecord = {

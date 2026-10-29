@@ -179,8 +179,11 @@ function reviewNote(deps: AskDeps, groups: readonly ScanGroup[], targets: readon
   const lines = ['Here is what I will do:'];
   if (groups.includes('web') && targets.length > 0) lines.push(`  • Send read-only requests (page fetches, TLS handshakes) to: ${targets.map((t) => t.url).join(', ')}`);
   if (groups.includes('host') && hosts.length > 0) lines.push(`  • Try TCP connections to a fixed list of admin and database ports on: ${hosts.map((h) => h.address).join(', ')}`);
+  if (groups.includes('host') && hosts.length > 0) {
+    lines.push('  • Look up the packages installed on those servers in public advisory databases (OSV, Ubuntu Security, CISA); only package names and versions are sent.');
+  }
   if (groups.includes('code')) lines.push(`  • Read the files and git history in ${deps.dir}`);
-  lines.push('  Nothing is changed, and nothing is sent anywhere else.');
+  lines.push('  Nothing is changed. Your files and secrets are never sent anywhere.');
   return lines.join('\n');
 }
 
