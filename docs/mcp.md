@@ -39,6 +39,8 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 | `get_report` | The latest report as Markdown, plus the PDF path |
 | `get_evidence` | One evidence record by id |
 | `verify_claim` | Is a third-party scanner's CVE claim true for a host? Uses the host snapshot and the distro's own advisories |
+| `get_playbook` | The secagent playbook (also offered as the `security_review` prompt): scan, explain, fix, verify, report, learn |
+| `report_summary` | Adds a plain-language summary and proposals to the latest report, labelled as written by an AI assistant and not verified |
 | `kb_search` | Keyword search over the knowledge base: lessons from past remediations (global and the project's own) and the check catalog. Hits say whether they are approved or pending review. |
 | `kb_read` | One lesson or check by id; `INDEX` is the one-line-per-entry overview, `notes` the project's notes, `exceptions` its accepted risks |
 

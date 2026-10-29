@@ -36,14 +36,14 @@ export function registerScanTools(server: McpServer, state: ServerState): void {
           });
           const input = await loadReportInput(state.dir, opts.checksDir ? { checksDir: opts.checksDir } : {});
           if (!input) throw new Error('the scan did not leave a record to report on');
-          const { latest } = await writeReport(state.dir, input, { formats: ['md', 'pdf'] });
+          const { latest } = await writeReport(state.dir, input, { formats: ['md', 'pdf', 'html'] });
           return jsonResult({
             verdict: verdict(input.record),
             groups_run: input.record.groups_run,
             counts: countFindings(input.record.findings),
             findings: sortFindings(input.record.findings).map((f) => compactFinding(input, f)),
             diff: input.record.diff,
-            report: { markdown: latest[0], pdf: latest[1] },
+            report: { markdown: latest[0], pdf: latest[1], html: latest[2] },
           });
         } finally {
           state.scanning = false;

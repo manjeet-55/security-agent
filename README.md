@@ -32,6 +32,7 @@ Then it scans with one line per check, shows the verdict and the first three thi
 
 - `.secagent/reports/latest.pdf`
 - `.secagent/reports/latest.md`
+- `.secagent/reports/latest.html` (one self-contained page, opens in any browser)
 
 Run `secagent` again in the same folder to scan again, change the answers, or start over.
 

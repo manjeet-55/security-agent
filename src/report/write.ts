@@ -1,11 +1,12 @@
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { projectStateDir } from '../paths.js';
+import { renderHtml } from './html.js';
 import { renderMarkdown } from './markdown.js';
 import { renderPdf } from './pdf.js';
 import { buildReport, type ReportInput } from './model.js';
 
-export type ReportFormat = 'md' | 'pdf';
+export type ReportFormat = 'md' | 'pdf' | 'html';
 
 /**
  * Writes the report for a scan to .secagent/reports/<YYYYMMDD-HHMMSS>/report.<ext> (named after the scan time, so re-rendering a
@@ -24,6 +25,8 @@ export async function writeReport(projectDir: string, input: ReportInput, opts: 
     const file = path.join(dir, `report.${format}`);
     if (format === 'md') {
       await writeFile(file, renderMarkdown(blocks), 'utf8');
+    } else if (format === 'html') {
+      await writeFile(file, renderHtml(blocks, { title: `Security report: ${input.project.name}` }), 'utf8');
     } else {
       const title = `Security report: ${input.project.name}`;
       await writeFile(file, await renderPdf(blocks, { title, footer: `secagent · ${input.project.name}`, createdAt: new Date(iso) }));

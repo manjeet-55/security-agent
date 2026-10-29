@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { packageVersion } from '../paths.js';
 import { ServerState, type ServerOptions } from './state.js';
+import { registerAgentTools } from './tools/agent.js';
 import { registerKbTools } from './tools/kb.js';
 import { registerProjectTools } from './tools/project.js';
 import { registerReadTools } from './tools/read.js';
@@ -10,7 +11,7 @@ import { registerVerifyTools } from './tools/verify.js';
 
 /** Sent to the client when it connects; the rules that keep an AI assistant's statements tied to evidence. */
 export const SERVER_INSTRUCTIONS = [
-  'secagent runs deterministic security checks on one project. You explain and prioritise; the checks decide every status.',
+  'secagent runs deterministic security checks on one project. You explain and prioritise; the checks decide every status. get_playbook (or the security_review prompt) has the full workflow.',
   '- Call project_info first, then run_scan, before saying anything about the project\'s security state.',
   '- A finding is open, fixed or unverifiable only as the latest scan says. unverifiable means unknown, not safe.',
   '- Never say something is fixed or safe without a new scan that shows it. After a fix, call run_scan again.',
@@ -30,6 +31,7 @@ export function createMcpServer(opts: ServerOptions): { server: McpServer; state
   registerReadTools(server, state);
   registerVerifyTools(server, state);
   registerKbTools(server, state);
+  registerAgentTools(server, state);
   return { server, state };
 }
 

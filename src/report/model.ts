@@ -6,6 +6,7 @@ import { FindingsStore } from '../findings/store.js';
 import { GLOBAL_CHECKS_DIR } from '../paths.js';
 import { loadProject, type ProjectConfig } from '../project/schema.js';
 import { SEVERITY_RANK, type CheckResult, type Severity } from '../types.js';
+import { readSummary, type ReportSummary } from './summary.js';
 
 /**
  * The report as data. Markdown and PDF both render these blocks, so the two can never say different things. Every number, status
@@ -30,6 +31,8 @@ export interface ReportInput {
   project: ProjectConfig;
   record: ScanRecord;
   instances: ReadonlyMap<string, CheckInstance>;
+  /** A summary an AI assistant wrote for this scan, if any. */
+  summary?: ReportSummary;
 }
 
 const FIX_FIRST = 5;
@@ -125,6 +128,19 @@ function earlierAreas(input: ReportInput): Area[] {
   const ran = input.record.groups_run;
   if (!ran) return [];
   return AREAS.filter((a) => !ran.includes(a) && input.record.results.some((r) => areaOfTarget(input, r.check_id, r.target) === a));
+}
+
+function aiSummary(input: ReportInput): Block[] {
+  const s = input.summary;
+  if (!s) return [];
+  return [
+    { kind: 'heading', level: 2, text: 'Summary' },
+    { kind: 'paragraph', spans: [{ text: 'Written by an AI assistant from the findings below. secagent did not verify it; the findings and evidence are what count.', bold: true }] },
+    { kind: 'paragraph', spans: [{ text: s.summary }] },
+    ...(s.proposals.length > 0
+      ? ([{ kind: 'heading', level: 3, text: 'Proposed (not findings)' }, { kind: 'list', items: s.proposals.map((p) => [{ text: p }]) }] as Block[])
+      : []),
+  ];
 }
 
 function atAGlance(input: ReportInput): Block[] {
@@ -265,6 +281,7 @@ export function buildReport(input: ReportInput): Block[] {
   return [
     { kind: 'title', text: `Security report: ${project.name}`, meta: `Scanned ${formatTime(record.scanned_at)} from network "${record.scan_label}" · deterministic scan, no AI` },
     { kind: 'verdict', tone: v.tone, text: v.text },
+    ...aiSummary(input),
     ...atAGlance(input),
     ...fixFirst(input),
     ...findingsSection(input, open),
@@ -282,5 +299,6 @@ export async function loadReportInput(projectDir: string, deps: { checksDir?: st
   if (!record) return undefined;
   const project = await loadProject(projectDir);
   const instances = await loadCheckInstances(deps.checksDir ?? GLOBAL_CHECKS_DIR, CHECK_TYPES);
-  return { project, record, instances: new Map(instances.map((i) => [i.id, i])) };
+  const summary = await readSummary(projectDir, record.scanned_at);
+  return { project, record, instances: new Map(instances.map((i) => [i.id, i])), ...(summary ? { summary } : {}) };
 }

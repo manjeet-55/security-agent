@@ -183,10 +183,10 @@ export async function runWizard(dir: string, deps: WizardDeps): Promise<number> 
       const record = await scanWithProgress(dir, plan, deps);
       const input = await loadReportInput(dir);
       if (!input) throw new Error('the scan did not leave a record to report on');
-      const { latest } = await writeReport(dir, input, { formats: ['md', 'pdf'] });
+      const { latest } = await writeReport(dir, input, { formats: ['md', 'pdf', 'html'] });
       showResult(record, input, deps);
-      const [md, pdf] = latest;
-      out.write(`\n${style.bold('Report')}\n  Markdown: ${md}\n  PDF:      ${pdf}\n\n`);
+      const [md, pdf, html] = latest;
+      out.write(`\n${style.bold('Report')}\n  Markdown: ${md}\n  PDF:      ${pdf}\n  HTML:     ${html}\n\n`);
 
       for (;;) {
         prompter.discardPending?.();

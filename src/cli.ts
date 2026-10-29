@@ -176,7 +176,7 @@ async function runScan(args: string[], deps: CliDeps): Promise<number> {
   return 0;
 }
 
-const REPORT_FORMATS: readonly ReportFormat[] = ['md', 'pdf'];
+const REPORT_FORMATS: readonly ReportFormat[] = ['md', 'pdf', 'html'];
 
 /** Writes the report of the latest scan and prints where it is. */
 async function printReport(dir: string): Promise<void> {

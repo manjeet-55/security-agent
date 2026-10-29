@@ -59,7 +59,7 @@ export function registerReadTools(server: McpServer, state: ServerState): void {
         try {
           markdown = await readFile(path.join(reports, 'latest.md'), 'utf8');
         } catch {
-          await writeReport(state.dir, input, { formats: ['md', 'pdf'] });
+          await writeReport(state.dir, input, { formats: ['md', 'pdf', 'html'] });
           markdown = await readFile(path.join(reports, 'latest.md'), 'utf8');
         }
         return { content: [textResult(markdown).content[0]!, textResult(`PDF report: ${path.join(reports, 'latest.pdf')}`).content[0]!] };
