@@ -16,28 +16,46 @@ redact() {
       p = substr(s, i - 1, 1)
       return (p == " " || p == "\t" || p == ";" || p == "{" || p == "}")
     }
-    # Index of the first ";" outside quotes at or after i, or 0.
-    function stmt_end(s, i,    n, c, q) {
-      n = length(s); q = ""
+    # Index of the first ";" outside quotes at or after i, or 0. q0 is the quote already open at i (a string continued from an
+    # earlier line); endq is left holding the quote still open at the end of s.
+    function stmt_end(s, i, q0,    n, c, q) {
+      n = length(s); q = q0
       for (; i <= n; i++) {
         c = substr(s, i, 1)
         if (q != "") { if (c == "\\") i++; else if (c == q) q = ""; continue }
         if ((c == "\"" || c == sq) && tokstart(s, i)) q = c
         else if (c == "\\") i++
-        else if (c == ";") return i
+        else if (c == ";") { endq = ""; return i }
       }
+      endq = q
       return 0
     }
+    # Length of the first token of s: a whole quoted string, else up to whitespace or ";".
+    function tok_len(s,    n, i, c, q) {
+      c = substr(s, 1, 1)
+      if (c == "\"" || c == sq) {
+        n = length(s); q = c
+        for (i = 2; i <= n; i++) {
+          c = substr(s, i, 1)
+          if (c == "\\") i++
+          else if (c == q) return i
+        }
+        return n
+      }
+      match(s, /^[^ \t;]*/)
+      return RLENGTH
+    }
     # Walks s from index i at brace depth d, counting braces outside quotes and comments so a regex quantifier like {2} nets to
-    # zero. Returns the index of the "}" that brings the depth to zero, else 0; sdepth is the depth at the end of s.
-    function scan(s, i, d,    n, c, q) {
+    # zero. In Lua code (isl) a quote opens anywhere and "--" starts a comment. Returns the index of the "}" that brings the
+    # depth to zero, else 0; sdepth is the depth at the end of s.
+    function scan(s, i, d, isl,    n, c, q) {
       n = length(s); q = ""
       for (; i <= n; i++) {
         c = substr(s, i, 1)
         if (q != "") { if (c == "\\") i++; else if (c == q) q = ""; continue }
-        if ((c == "\"" || c == sq) && tokstart(s, i)) q = c
+        if ((c == "\"" || c == sq) && (isl || tokstart(s, i))) q = c
         else if (c == "\\") i++
-        else if (c == "#" && tokstart(s, i)) break
+        else if (isl ? (c == "-" && substr(s, i, 2) == "--") : (c == "#" && tokstart(s, i))) break
         else if (c == "{") d++
         else if (c == "}") { d--; if (d <= 0) { sdepth = 0; return i } }
       }
@@ -66,10 +84,18 @@ redact() {
       if (n == "secure_link_md5") return 1
       return (n ~ /(secret|passw|token|api_?key|auth_[a-z0-9_]*key)/ && n !~ /_file$/ && n != "server_tokens")
     }
+    function block_name(n) { return (n == "map" || n == "geo" || n ~ /_by_lua_block$/) }
+    # Directives that set a header or parameter whose value is secret when its name is.
+    function hdr_dir(n) { return (n ~ /^(proxy_set_header|add_header|add_trailer|grpc_set_header|fastcgi_param|uwsgi_param|scgi_param|auth_http_header)$/) }
+    function hdr_secret(n, h) {
+      if (h ~ /(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)/) return 1
+      return (n ~ /_param$/ && h ~ /(pass|pwd)/)
+    }
     # Redacts the value of every secret-named directive on the line: at line start, after ";", "{" or "}", and in comments.
     # cont is set when line is the rest of a statement, so it is scanned for statements from its first character.
-    function scrub(line, cont,    out, rest, first, ok, m, name, e) {
-      out = ""; rest = line; first = !cont
+    # Statements that go on over later lines set hdr (and hq, a quote still open), so those lines are redacted up to their ";".
+    function scrub(line, cont,    out, rest, first, ok, m, name, lname, e, incm, isl, b, tl, hname, after, ws, v) {
+      out = ""; rest = line; first = !cont; incm = (line ~ /^[ \t]*#/)
       while (1) {
         if (first) ok = match(rest, /^[ \t]*#*[ \t]*[A-Za-z0-9_]+[ \t]+/)
         else ok = match(rest, /[;{}#][ \t]*[A-Za-z0-9_]+[ \t]+/)
@@ -77,74 +103,109 @@ redact() {
         m = substr(rest, RSTART, RLENGTH)
         out = out substr(rest, 1, RSTART + RLENGTH - 1)
         rest = substr(rest, RSTART + RLENGTH)
+        if (!first && substr(m, 1, 1) == "#") incm = 1
         first = 0
         name = m; sub(/^[ \t]*[;{}#]*[ \t]*/, "", name); sub(/[ \t]+$/, "", name)
-        if (!secret_name(tolower(name))) continue
+        lname = tolower(name)
+        if (block_name(lname)) {
+          if (incm) continue
+          isl = (lname != "map" && lname != "geo")
+          b = find_brace(rest)
+          if (b > 0) { out = out open_block(rest, b, isl); rest = blk_rest; if (depth > 0) break; continue }
+          if (b == 0) { pend = 1; plua = isl; break }
+          continue
+        }
+        if (lname ~ /_by_lua$/) {
+          e = stmt_end(rest, 1, "")
+          out = out "<redacted>"
+          if (e) { rest = substr(rest, e); continue }
+          if (!incm) { hdr = 1; hq = endq }
+          rest = ""; break
+        }
+        if (lname ~ /^more_set_(input_)?headers$/) {
+          if (!stmt_end(rest, 1, "") && !incm) { hdr = 1; hq = endq }
+          continue
+        }
+        if (hdr_dir(lname)) {
+          tl = tok_len(rest)
+          if (tl == 0) continue
+          hname = tolower(substr(rest, 1, tl)); gsub("[\"" sq "]", "", hname)
+          if (!hdr_secret(lname, hname)) continue
+          after = substr(rest, tl + 1)
+          match(after, /^[ \t]*/); ws = RLENGTH
+          v = substr(after, ws + 1)
+          if (v ~ /^(#|$)/) { if (!incm) { hdr = 1; hq = "" }; continue }
+          if (v ~ /^;/) continue
+          e = stmt_end(v, 1, "")
+          out = out substr(rest, 1, tl + ws) "<redacted>"
+          if (e) { rest = substr(v, e); continue }
+          if (!incm) { hdr = 1; hq = endq }
+          rest = ""; break
+        }
+        if (!secret_name(lname)) continue
         # Only a ";"-terminated statement is a directive; sshd -T prints "passwordauthentication yes" without one.
-        e = stmt_end(rest, 1)
-        if (!e) continue
-        out = out "<redacted>"
-        rest = substr(rest, e)
+        e = stmt_end(rest, 1, "")
+        if (e) { out = out "<redacted>"; rest = substr(rest, e); continue }
+        if (endq != "") {
+          out = out "<redacted>"
+          if (!incm) { hdr = 1; hq = endq }
+          rest = ""; break
+        }
       }
-      # A secret-named directive alone on its line: its value is on the next non-blank line.
-      if (first && line !~ /^[ \t]*#/ && match(line, /^[ \t]*[A-Za-z0-9_]+[ \t]*$/)) {
-        name = line; gsub(/[ \t]/, "", name)
-        if (secret_name(tolower(name))) hdr = 1
+      # A directive alone on its line: its value (or a map body brace) is on the next lines.
+      if (!cont && !incm && match(line, /^[ \t]*[A-Za-z0-9_]+[ \t]*(#.*)?$/)) {
+        name = line; sub(/^[ \t]*/, "", name); sub(/[^A-Za-z0-9_].*$/, "", name); lname = tolower(name)
+        if (block_name(lname)) { pend = 1; plua = (lname != "map" && lname != "geo") }
+        else if (secret_name(lname) || hdr_dir(lname) || lname ~ /^more_set_(input_)?headers$/ || lname ~ /_by_lua$/) { hdr = 1; hq = "" }
       }
       return out rest
     }
-    # Redacts the body of a map or geo whose "{" is at index b of s: returns s up to the brace plus a marker, and sets blk_rest to
-    # the text from the closing "}" on. While the body goes on over later lines blk_rest is empty and depth is set.
-    function open_block(s, b,    c) {
-      c = scan(s, b, 0)
+    # Redacts the body of a map, geo or Lua block whose "{" is at index b of s: returns s up to the brace plus a marker, and sets
+    # blk_rest to the text from the closing "}" on. While the body goes on over later lines blk_rest is empty and depth is set.
+    function open_block(s, b, isl,    c) {
+      c = scan(s, b, 0, isl)
       if (c) { blk_rest = substr(s, c); return substr(s, 1, b) " <redacted> " }
-      depth = sdepth; blk_rest = ""
-      return substr(s, 1, b) " # map/geo values redacted"
+      depth = sdepth; blua = isl; blk_rest = ""
+      return substr(s, 1, b) (isl ? " # lua code redacted" : " # map/geo values redacted")
     }
     function proc(line,    c, b, v, lead, e, rest) {
       if (depth > 0) {
         if (lost(line)) { print MARK; depth = 0 }
         else {
-          c = scan(line, 1, depth)
+          c = scan(line, 1, depth, blua)
           if (!c) { depth = sdepth; return }
           depth = 0
-          print "    } # map/geo values redacted"
+          print blua ? "    } # lua code redacted" : "    } # map/geo values redacted"
           rest = substr(line, c + 1)
           if (rest ~ /[^ \t]/) proc(rest)
           return
         }
       }
       if (hdr) {
-        # The value of a header or secret directive that is alone on its line: redact it, up to its ";" and no further.
-        if (line !~ /[^ \t]/ || line ~ /^[ \t]*#/) { print; return }
-        if (lost(line)) { print MARK; hdr = 0 }
+        # The rest of a statement whose value is on later lines: redact it up to its ";" and no further.
+        if (hq == "" && (line !~ /[^ \t]/ || line ~ /^[ \t]*#/)) { print scrub(line, 0); return }
+        if (hq == "" && lost(line)) { print MARK; hdr = 0 }
         else {
-          match(line, /^[ \t]*/); lead = substr(line, 1, RLENGTH); e = stmt_end(line, 1)
-          if (e) hdr = 0
-          print lead "<redacted>" (e ? scrub(substr(line, e), 1) : ""); return
+          match(line, /^[ \t]*/); lead = substr(line, 1, RLENGTH); e = stmt_end(line, 1, hq)
+          if (e) { hdr = 0; hq = ""; print lead "<redacted>" scrub(substr(line, e), 1); return }
+          hq = endq
+          print lead "<redacted>"; return
         }
       }
       if (pend) {
         b = find_brace(line)
-        if (b > 0) { pend = 0; v = open_block(line, b); print v scrub(blk_rest, 1); return }
+        if (b > 0) { pend = 0; v = open_block(line, b, plua); print v scrub(blk_rest, 1); return }
         if (b < 0) pend = 0
       }
-      if (line ~ /^[ \t]*(map|geo)[ \t]/) {
-        b = find_brace(line)
-        if (b > 0) { v = open_block(line, b); print v scrub(blk_rest, 1); return }
-        if (b == 0) pend = 1
-        print line; return
-      }
-      if (tolower(line) ~ /^[ \t]*(proxy_set_header|add_header|more_set_headers|grpc_set_header|fastcgi_param|uwsgi_param|scgi_param)[ \t]+"?[a-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[a-z0-9_-]*"?[ \t]*$/) { hdr = 1; print line; return }
       print scrub(line, 0)
     }
     { proc($0) }
-    END { if (depth > 0) print MARK }
+    END { if (depth > 0 || (hdr && hq != "")) print MARK }
   ' | sed -E \
     -e 's/^([[:space:]]*env[[:space:]]+[A-Za-z0-9_]+=)[^;]+/\1<redacted>/' \
     -e 's/([?&][A-Za-z0-9_.-]*(key|token|secret|sig|passw|auth)[A-Za-z0-9_.-]*=)[^&[:space:]"'"'"';]+/\1<redacted>/Ig' \
     -e 's/(\$[A-Za-z0-9_]*(secret|token|passw|api[_-]?key|private|jwt)[A-Za-z0-9_]*[[:space:]]+)[^;{]+/\1<redacted>/Ig' \
-    -e 's/((proxy_set_header|add_header|more_set_headers|grpc_set_header|fastcgi_param|uwsgi_param|scgi_param)[[:space:]]+"?[A-Za-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[A-Za-z0-9_-]*"?[[:space:]]+)[^;]+/\1<redacted>/Ig' \
+    -e 's/((proxy_set_header|add_header|add_trailer|more_set_headers|grpc_set_header|fastcgi_param|uwsgi_param|scgi_param|auth_http_header)[[:space:]]+"?[A-Za-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[A-Za-z0-9_-]*"?[[:space:]]+)[^;]+/\1<redacted>/Ig' \
     -e '/more_set_(input_)?headers/I s/("[[:space:]]*[A-Za-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[A-Za-z0-9_-]*[[:space:]]*:[[:space:]]*)[^"]*/\1<redacted>/Ig' \
     -e '/more_set_(input_)?headers/I s/('"'"'[[:space:]]*[A-Za-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[A-Za-z0-9_-]*[[:space:]]*:[[:space:]]*)[^'"'"']*/\1<redacted>/Ig' \
     -e '/more_set_(input_)?headers/I s/([[:space:]][A-Za-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[A-Za-z0-9_-]*:)[^[:space:];"'"'"']+/\1<redacted>/Ig' \

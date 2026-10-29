@@ -292,6 +292,199 @@ describe.runIf(linuxWithSh)('collector.sh', () => {
     });
   });
 
+  describe.each(awks)('quoted cookies, header values on later lines, Lua and password params (%s)', (awk) => {
+    it('redacts the whole quoted value of a cookie header or parameter, even with a semicolon inside', () => {
+      const out = redactWith(
+        [
+          '\tproxy_set_header Cookie "theme=dark; sessionid=LEAK_CK_1";',
+          "\tproxy_set_header Cookie 'a=1; b=LEAK_CK_2' ;",
+          '\tfastcgi_param HTTP_COOKIE "a=1; token=LEAK_CK_3";',
+          '\tadd_header Set-Cookie "sid=LEAK_CK_4; Path=/; HttpOnly";',
+          '\tproxy_set_header "X-Api-Key" "LEAK_CK_5;still";',
+          '\tproxy_set_header Host $host;',
+          '\tssl_protocols TLSv1 TLSv1.2;',
+        ].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_CK|HttpOnly|sessionid|Path=/);
+      expect(out).toContain('proxy_set_header Cookie <redacted>;');
+      expect(out).toContain('fastcgi_param HTTP_COOKIE <redacted>;');
+      expect(out).toContain('proxy_set_header Host $host;');
+      expect(out).toContain('ssl_protocols TLSv1 TLSv1.2;');
+    });
+
+    it('redacts a multi-line quoted header value and keeps the statements around it', () => {
+      const out = redactWith(
+        ['\tproxy_set_header Authorization "Basic LEAK_ML_1', '\t    continued LEAK_ML_2; LEAK_ML_3";', '\tserver_tokens on;'].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_ML/);
+      expect(out).toContain('server_tokens on;');
+    });
+
+    it('redacts more_set_headers and more_set_input_headers values that start on the next line', () => {
+      const out = redactWith(
+        [
+          '\tmore_set_headers',
+          '\t    "Authorization: Basic LEAK_MS_1";',
+          '\tmore_set_input_headers -s 401',
+          '\t    "X-Ok: fine"',
+          '\t    "X-Api-Key: LEAK_MS_2";',
+          '\tmore_set_headers "X-Foo: bar"',
+          "\t    'Set-Cookie: sid=LEAK_MS_3; Path=/';",
+          '\tserver_tokens on;',
+        ].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_MS/);
+      expect(out).toContain('server_tokens on;');
+    });
+
+    it('redacts a header value after a comment, whether the comment is on the name line or on lines of its own', () => {
+      const out = redactWith(
+        [
+          '\tproxy_set_header Authorization # the credential',
+          '\t    "Basic LEAK_CM_1";',
+          '\tproxy_set_header Authorization',
+          '\t    # was: proxy_set_header Authorization "Basic LEAK_CM_2";',
+          '',
+          '\t    "Basic LEAK_CM_3";',
+          '\tproxy_set_header Cookie # c',
+          '\t    # c2',
+          '\t    "a=b; LEAK_CM_4";',
+          '\t# proxy_set_header Authorization',
+          '\tproxy_set_header Host $host;',
+          '\tssl_protocols TLSv1 TLSv1.2;',
+        ].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_CM/);
+      expect(out).toContain('proxy_set_header Host $host;');
+      expect(out).toContain('ssl_protocols TLSv1 TLSv1.2;');
+      expect(out).not.toContain(MARKER);
+    });
+
+    it('redacts *_by_lua_block bodies whole, like map and geo', () => {
+      const out = redactWith(
+        [
+          'http {',
+          '\tinit_by_lua_block {',
+          '\t    local key = "LEAK_LUA_1"',
+          '\t    local s = "}"   -- LEAK_LUA_2 }',
+          "\t    local t = '{LEAK_LUA_3'",
+          '\t    ngx.shared.d:set("k", "LEAK_LUA_4")',
+          '\t}',
+          '\tserver_tokens on;',
+          '\tset_by_lua_block $x { return "LEAK_LUA_5" }',
+          '\tlocation /h { content_by_lua_block { ngx.say("LEAK_LUA_6") } }',
+          '\tcontent_by_lua_block',
+          '\t{',
+          '\t    ngx.say("LEAK_LUA_7")',
+          '\t}',
+          '\tssl_protocols TLSv1 TLSv1.2;',
+          '}',
+        ].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_LUA/);
+      expect(out).not.toContain(MARKER);
+      expect(out).toContain('init_by_lua_block {');
+      expect(out).toContain('server_tokens on;');
+      expect(out).toContain('location /h {');
+      expect(out).toContain('ssl_protocols TLSv1 TLSv1.2;');
+    });
+
+    it('flags lost sync when a Lua body contains configuration instead of code, and when it never closes', () => {
+      const broken = redactWith(['access_by_lua_block {', '\tlocal x = 1', 'server {', '\tssl_protocols TLSv1;', '}'].join('\n'), awk);
+      expect(broken.split('\n')).toContain(MARKER);
+      expect(broken).toContain('ssl_protocols TLSv1;');
+      expect(redactWith(['http {', 'log_by_lua_block {', '  local x = 1'].join('\n'), awk).split('\n')).toContain(MARKER);
+      expect(redactWith(['http {', "content_by_lua '", '  local x = 1', 'server_tokens on;'].join('\n'), awk).split('\n')).toContain(MARKER);
+    });
+
+    it('redacts *_by_lua inline strings, single or double quoted and over several lines', () => {
+      const out = redactWith(
+        [
+          "\tcontent_by_lua 'ngx.say(\"LEAK_IL_1\")';",
+          '\taccess_by_lua "return ngx.var.LEAK_IL_2";',
+          '\tset_by_lua $y \'return "LEAK_IL_3"\';',
+          "\tcontent_by_lua '",
+          '\t    local k = "LEAK_IL_4";',
+          '\t    # still lua LEAK_IL_5',
+          "\t';",
+          '\tcontent_by_lua_file /etc/nginx/handler.lua;',
+          '\tserver_tokens on;',
+        ].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_IL/);
+      expect(out).toContain('content_by_lua_file /etc/nginx/handler.lua;');
+      expect(out).toContain('server_tokens on;');
+      expect(out).not.toContain(MARKER);
+    });
+
+    it('redacts parameter and env names containing pass or pwd but leaves the *_pass directives alone', () => {
+      const out = redactWith(
+        [
+          '\tuwsgi_param DB_PASS LEAK_PW_1;',
+          '\tfastcgi_param MYSQL_PWD "LEAK_PW_2";',
+          '\tscgi_param mysql_pwd LEAK_PW_3;',
+          '\tfastcgi_param DB_PASSWORD LEAK_PW_4;',
+          'env MYSQL_PWD=LEAK_PW_5;',
+          'env DB_PASS=LEAK_PW_6;',
+          'env TZ;',
+          '\tproxy_pass http://backend:8080;',
+          '\tproxy_pass http://upstream_pool/path;',
+          '\tfastcgi_pass unix:/run/php/php8.3-fpm.sock;',
+          '\tuwsgi_pass 127.0.0.1:3031;',
+          '\tgrpc_pass grpc://127.0.0.1:9000;',
+          '\tscgi_pass 127.0.0.1:4000;',
+          '\tfastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;',
+          '\tfastcgi_param REDIRECT_STATUS 200;',
+        ].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_PW/);
+      for (const kept of [
+        'env TZ;',
+        'proxy_pass http://backend:8080;',
+        'proxy_pass http://upstream_pool/path;',
+        'fastcgi_pass unix:/run/php/php8.3-fpm.sock;',
+        'uwsgi_pass 127.0.0.1:3031;',
+        'grpc_pass grpc://127.0.0.1:9000;',
+        'scgi_pass 127.0.0.1:4000;',
+        'fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;',
+        'fastcgi_param REDIRECT_STATUS 200;',
+      ])
+        expect(out, kept).toContain(kept);
+    });
+
+    it('redacts mail auth_http_header like the other header directives', () => {
+      const out = redactWith(
+        ['mail {', '\tauth_http_header X-Auth-Key "LEAK_MH_1";', '\tauth_http_header Auth-Pass LEAK_MH_2;', '\tauth_http_header X-Trace on;', '}'].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_MH/);
+      expect(out).toContain('auth_http_header X-Trace on;');
+    });
+
+    it('keeps sshd -T output (no semicolons) intact', () => {
+      const sshd = ['passwordauthentication yes', 'permitrootlogin without-password', 'pubkeyauthentication yes', 'kbdinteractiveauthentication no', 'server_tokens off'].join('\n');
+      expect(redactWith(sshd, awk)).toBe(`${sshd}\n`);
+    });
+  });
+
+  // Redaction runs over every section, and the committed fixtures are real, already redacted collector output: a second pass over
+  // them must change nothing, or the new rules would be eating config the checks read.
+  describe.each(awks)('redaction over the real fixtures (%s)', (awk) => {
+    it.each(['ubuntu-24-04', 'ubuntu-22-04', 'debian-12'] as const)('leaves every %s section byte-identical', (name) => {
+      for (const [section, { b64 }] of Object.entries(fixtureEnvelope(name).sections)) {
+        const text = Buffer.from(b64, 'base64').toString('utf8').replace(/\n+$/, '');
+        expect(redactWith(text, awk).replace(/\n+$/, ''), `${name} ${section}`).toBe(text);
+      }
+    });
+  });
+
   it('emit yields JSON with rc and b64 per section', () => {
     const head = SCRIPT.slice(0, SCRIPT.indexOf('emit uid'));
     const script = `${head}emit ok 'echo hello'\nemit bad 'echo oops; exit 3'\nprintf '}}\\n'\n`;
