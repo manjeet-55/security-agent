@@ -131,6 +131,13 @@ describe('scanNoAi', () => {
       expect(byId.get('code-secrets-history@code')?.fix?.how).toContain('Rotate');
     });
 
+    it('records when consent was given, and leaves it out when it was not', async () => {
+      const dir = await leakyProject();
+      expect((await scanNoAi(dir, { now: T1 })).consent_at).toBeUndefined();
+      const consentAt = new Date('2026-10-28T09:59:00.000Z');
+      expect((await scanNoAi(dir, { now: T2, consentAt })).consent_at).toBe('2026-10-28T09:59:00.000Z');
+    });
+
     it('skips the code checks when code.enabled is false', async () => {
       const dir = await leakyProject();
       await setCode(dir, { enabled: false });

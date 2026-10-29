@@ -22,6 +22,8 @@ import { Scope, ScopeError } from './project/scope.js';
 import { SCAN_GROUPS, scanNoAi, type ScanGroup } from './scan/no-ai.js';
 import { SEVERITY_RANK } from './types.js';
 import { verifyClaim, type ClaimResult } from './verify/claim.js';
+import { loadReportInput } from './report/model.js';
+import { writeReport, type ReportFormat } from './report/write.js';
 
 export class UsageError extends Error {
   constructor(message: string) {
@@ -50,6 +52,8 @@ Commands:
   verify     Verdict on a scanner's CVE claim for a host, from its snapshot and distro advisories
             --dir <path>   --host <name>   --cve <CVE-id>   [--package <name>]   [--json]
   learn      Refresh CISA KEV and the package advisories for every stored host snapshot
+            --dir <path>
+  report     Re-render the report of the latest scan (.secagent/reports/latest.*)
             --dir <path>
 `;
 
@@ -148,6 +152,23 @@ async function runScan(args: string[], deps: CliDeps): Promise<number> {
     ...(deps.advisories ? { advisories: deps.advisories } : {}),
   });
   for (const line of formatScan(record)) console.log(line);
+  await printReport(dir);
+  return 0;
+}
+
+const REPORT_FORMATS: readonly ReportFormat[] = ['md'];
+
+/** Writes the report of the latest scan and prints where it is. */
+async function printReport(dir: string): Promise<void> {
+  const input = await loadReportInput(dir);
+  if (!input) throw new UsageError('No scan yet: run secagent scan --no-ai first');
+  const { latest } = await writeReport(dir, input, { formats: REPORT_FORMATS });
+  for (const file of latest) console.log(`Report: ${file}`);
+}
+
+async function runReport(args: string[]): Promise<number> {
+  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  await printReport(path.resolve(values.dir));
   return 0;
 }
 
@@ -290,6 +311,8 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
         return await runVerify(rest, deps);
       case 'learn':
         return await runLearn(rest, deps);
+      case 'report':
+        return await runReport(rest);
       case undefined:
       case 'help':
       case '--help':

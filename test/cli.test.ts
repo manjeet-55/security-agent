@@ -1,6 +1,7 @@
 import { parse, stringify } from 'yaml';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { formatScan, main, parseHostSpec, parseTargetSpec, UsageError } from '../src/cli.js';
 import { COLLECTOR_PATH } from '../src/host/collector.js';
@@ -105,6 +106,39 @@ describe('main', () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});
       expect(await main(['scan', '--no-ai', '--dir', dir, '--only', 'code'])).toBe(1);
       expect(error).toHaveBeenCalledWith(expect.stringContaining('code.enabled'));
+    });
+  });
+
+  describe('report', () => {
+    it('scan --no-ai writes the Markdown report and prints where it is', async () => {
+      const dir = await tempDir();
+      await repoWith(dir, { 'src/app.ts': `// config\nconst id = '${FAKE.awsKeyId}';\n` });
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(await main(['init', '--dir', dir])).toBe(0);
+      expect(await main(['scan', '--no-ai', '--dir', dir])).toBe(0);
+      const latest = path.join(dir, '.secagent', 'reports', 'latest.md');
+      expect(log).toHaveBeenCalledWith(`Report: ${latest}`);
+      expect(readFileSync(latest, 'utf8')).toContain('src/app.ts:2 aws-access-key-id');
+    });
+
+    it('report re-renders the latest scan', async () => {
+      const dir = await tempDir();
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(await main(['init', '--dir', dir])).toBe(0);
+      expect(await main(['scan', '--no-ai', '--dir', dir])).toBe(0);
+      const latest = path.join(dir, '.secagent', 'reports', 'latest.md');
+      await writeFile(latest, 'stale', 'utf8');
+      expect(await main(['report', '--dir', dir])).toBe(0);
+      expect(readFileSync(latest, 'utf8')).toContain('# Security report:');
+    });
+
+    it('report before any scan says to scan first', async () => {
+      const dir = await tempDir();
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(await main(['init', '--dir', dir])).toBe(0);
+      expect(await main(['report', '--dir', dir])).toBe(1);
+      expect(error).toHaveBeenCalledWith('No scan yet: run secagent scan --no-ai first');
     });
   });
 

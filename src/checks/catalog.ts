@@ -10,6 +10,8 @@ export const CheckInstanceSchema = z
     id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
     type: z.string().min(1),
     title: z.string().min(1),
+    /** One or two plain sentences on the harm, for a reader who is not a security specialist. Shown in reports. */
+    why: z.string().min(1).optional(),
     severity: z.enum(SEVERITIES),
     applies_to: z.array(z.enum(SUBJECT_KINDS)).min(1),
     params: z.record(z.string(), z.unknown()).default({}),

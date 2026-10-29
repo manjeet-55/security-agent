@@ -75,6 +75,9 @@ describe('a scan never repeats a secret it found', () => {
     for (const id of PATTERN_IDS) expect(treeHits.some((h) => h.pattern === id), `no ${id} hit in evidence`).toBe(true);
     expect(treeHits.some((h) => h.path === 'old.ts')).toBe(true);
 
+    // the report is among the files searched below
+    expect(readFileSync(path.join(dir, '.secagent', 'reports', 'latest.md'), 'utf8')).toContain('aws-access-key-id');
+
     const everything = everythingWritten(dir, record, printed);
     for (const raw of RAW_SECRETS) expect(everything, `"${raw.slice(0, 6)}…" was written out`).not.toContain(raw);
   });

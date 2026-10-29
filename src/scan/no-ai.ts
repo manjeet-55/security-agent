@@ -36,6 +36,8 @@ export interface ScanDeps {
   advisories?: Advisories;
   /** Run only these groups. Results and findings of the other groups are carried over from the previous scan unchanged. */
   only?: readonly ScanGroup[];
+  /** When the person running a guided scan confirmed they may test the systems in scope; recorded in the scan record. */
+  consentAt?: Date;
 }
 
 /** Runs every applicable check on every listed target and host, with no AI involvement. */
@@ -82,6 +84,7 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
     scanned_at: scannedAt.toISOString(),
     scan_label: project.network.scan_label,
     mode: 'no-ai',
+    ...(deps.consentAt ? { consent_at: deps.consentAt.toISOString() } : {}),
     results: allResults,
     findings: allFindings,
     diff: diffScans(previous, { results: allResults, findings: allFindings }),

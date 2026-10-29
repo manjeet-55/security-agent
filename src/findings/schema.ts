@@ -46,6 +46,8 @@ export const ScanRecordSchema = z.object({
   scanned_at: z.iso.datetime(),
   scan_label: z.string(),
   mode: z.enum(['no-ai', 'agent']),
+  /** When the person running the scan confirmed they may test the systems in scope (guided scans). */
+  consent_at: z.iso.datetime().optional(),
   results: z.array(CheckResultSchema),
   findings: z.array(FindingSchema),
   diff: ScanDiffSchema,
