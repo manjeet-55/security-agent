@@ -31,6 +31,21 @@ export interface SnapshotReader {
 }
 
 /** Collector outputs under .secagent/hosts/<host>/<collected_at>.json (git-ignored). */
+/** Collector output as text → a validated snapshot. Not JSON, not a snapshot, or dated in the future → ObservationError. */
+export function parseSnapshotText(text: string, now: Date): HostSnapshot {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new ObservationError('SNAPSHOT_INVALID', `Snapshot is not JSON: ${(e as Error).message}`);
+  }
+  const snapshot = decodeSnapshot(raw);
+  if (Date.parse(snapshot.collected_at) - now.getTime() > MAX_FUTURE_SKEW_MS) {
+    throw new ObservationError('SNAPSHOT_INVALID', `Snapshot collected_at ${snapshot.collected_at} is in the future; check the clock on the host.`);
+  }
+  return snapshot;
+}
+
 export class SnapshotStore implements SnapshotReader {
   readonly dir: string;
 
@@ -43,16 +58,8 @@ export class SnapshotStore implements SnapshotReader {
 
   async add(host: string, text: string): Promise<StoredSnapshot> {
     assertHostName(host);
-    let raw: unknown;
-    try {
-      raw = JSON.parse(text);
-    } catch (e) {
-      throw new ObservationError('SNAPSHOT_INVALID', `Snapshot is not JSON: ${(e as Error).message}`);
-    }
-    const snapshot = decodeSnapshot(raw);
-    if (Date.parse(snapshot.collected_at) - this.now().getTime() > MAX_FUTURE_SKEW_MS) {
-      throw new ObservationError('SNAPSHOT_INVALID', `Snapshot collected_at ${snapshot.collected_at} is in the future; check the clock on the host.`);
-    }
+    const snapshot = parseSnapshotText(text, this.now());
+    const raw: unknown = JSON.parse(text);
     const file = path.join(this.dir, host, `${snapshot.collected_at.replace(/[-:]/g, '')}.json`);
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, `${JSON.stringify(SnapshotEnvelopeSchema.parse(raw))}\n`, 'utf8');
