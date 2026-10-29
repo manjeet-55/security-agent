@@ -113,10 +113,11 @@ describe('scanNoAi', () => {
       },
     };
 
-    it('runs the four code checks in a plain scan, naming file and line, with no targets or hosts needed', async () => {
+    it('runs the code checks in a plain scan, naming file and line, with no targets or hosts needed', async () => {
       const dir = await leakyProject();
       const record = await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T1 });
       expect(record.results.map((r) => r.check_id).sort()).toEqual([
+        'code-dependencies-npm',
         'code-env-files-tracked',
         'code-env-not-ignored',
         'code-secrets-history',
@@ -170,7 +171,7 @@ describe('scanNoAi', () => {
       const dir = await leakyProject({ targets: [{ id: 'app', url: 'https://app.example.com', type: 'web', env: 'prod' }] });
       const plans: number[] = [];
       await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T1, only: ['code'], onPlan: (n) => plans.push(n) });
-      expect(plans).toEqual([4]);
+      expect(plans).toEqual([5]);
     });
 
     it('records when consent was given, and leaves it out when it was not', async () => {
@@ -236,7 +237,7 @@ describe('scanNoAi', () => {
       });
       const record = await scanNoAi(dir, { net: NET_THAT_MUST_NOT_RUN, now: T1, only: ['code'] });
       expect(new Set(record.results.map((r) => r.target))).toEqual(new Set(['code']));
-      expect(record.results).toHaveLength(4);
+      expect(record.results).toHaveLength(5);
     });
 
     it('--only web runs the targets, --only host the hosts, and neither runs the code checks', async () => {

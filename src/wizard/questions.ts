@@ -182,7 +182,10 @@ function reviewNote(deps: AskDeps, groups: readonly ScanGroup[], targets: readon
   if (groups.includes('host') && hosts.length > 0) {
     lines.push('  • Look up the packages installed on those servers in public advisory databases (OSV, Ubuntu Security, CISA); only package names and versions are sent.');
   }
-  if (groups.includes('code')) lines.push(`  • Read the files and git history in ${deps.dir}`);
+  if (groups.includes('code')) {
+    lines.push(`  • Read the files and git history in ${deps.dir}`);
+    lines.push('  • Look up the npm packages in package-lock.json, if there is one, in the OSV advisory database; only package names and versions are sent.');
+  }
   lines.push('  Nothing is changed. Your files and secrets are never sent anywhere.');
   return lines.join('\n');
 }
@@ -223,7 +226,7 @@ export async function askPlan(p: Prompter, deps: AskDeps): Promise<WizardPlan | 
     const picked = await p.multiselect({
       message: 'What should I check?',
       choices: [
-        { value: 'code' as const, label: "This project's code", hint: 'secrets, .env files, git history' },
+        { value: 'code' as const, label: "This project's code", hint: 'secrets, .env files, git history, npm dependencies' },
         { value: 'web' as const, label: 'Deployed websites or APIs', hint: 'headers, TLS, exposed files' },
         { value: 'host' as const, label: 'Servers', hint: 'SSH, nginx, packages (needs the collector)' },
       ],

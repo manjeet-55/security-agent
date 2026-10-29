@@ -265,7 +265,11 @@ function about(input: ReportInput): Block[] {
         ? 'Run by an AI assistant through the MCP server, for the websites and servers listed in project.yaml.'
         : 'Run from the command line.',
   );
-  const lookups = scanned.has('host') ? ' Server package checks look up package names and versions in public advisory databases (OSV, Ubuntu Security, CISA).' : '';
+  const depsChecked = record.results.some((r) => input.instances.get(r.check_id)?.type === 'code_dependencies');
+  const lookups = [
+    ...(scanned.has('host') ? [' Server package checks look up package names and versions in public advisory databases (OSV, Ubuntu Security, CISA).'] : []),
+    ...(depsChecked ? [' The npm dependency check looks up package names and versions in OSV.'] : []),
+  ].join('');
   lines.push(
     `Method: read-only requests to the listed systems and local reads of this folder; no AI, so the same inputs give the same result.${lookups}`,
     'A check that could not run is never counted as passed.',

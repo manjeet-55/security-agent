@@ -89,7 +89,7 @@ describe('main', () => {
       const dir = await leakyRepo();
       const log = vi.spyOn(console, 'log').mockImplementation(() => {});
       expect(await main(['scan', '--no-ai', '--dir', dir, '--only', 'code'])).toBe(0);
-      expect(log.mock.calls.map((c) => c.join(' ')).join('\n')).toContain('4 check results');
+      expect(log.mock.calls.map((c) => c.join(' ')).join('\n')).toContain('5 check results');
     });
 
     it('rejects a group that does not exist, naming the ones that do', async () => {

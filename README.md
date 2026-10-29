@@ -2,7 +2,7 @@
 
 A security check you run from the terminal, inside the project it checks. It asks what it needs (deployed URLs, environment, servers), asks for your permission before it touches anything, scans, and writes a report anyone on the team can read, as Markdown and PDF.
 
-It is deterministic: no AI model and no API key, and the same inputs give the same result. Your code, files and secrets never leave your machine. A scan sends requests to the websites and servers you list, and server checks look up package names and versions in public advisory databases (OSV, Ubuntu Security, CISA). (An AI assistant can drive it through MCP, see below; it still decides nothing.)
+It is deterministic: no AI model and no API key, and the same inputs give the same result. Your code, files and secrets never leave your machine. A scan sends requests to the websites and servers you list; the npm dependency check and the server checks look up package names and versions in public advisory databases (OSV, Ubuntu Security, CISA). (An AI assistant can drive it through MCP, see below; it still decides nothing.)
 
 ## Install
 
@@ -40,7 +40,7 @@ Run `secagent` again in the same folder to scan again, change the answers, or st
 
 | Area | Checks |
 |---|---|
-| Code | secrets in source files (keys, tokens, private keys, passwords in URLs), `.env`/key/credential files committed or one `git add .` away from it, secrets that were committed once and removed since (git history) |
+| Code | secrets in source files (keys, tokens, private keys, passwords in URLs), `.env`/key/credential files committed or one `git add .` away from it, secrets that were committed once and removed since (git history), npm dependencies with known vulnerabilities (`package-lock.json` against OSV) |
 | Websites and APIs | security headers, cookies, HTTP to HTTPS redirect, TLS versions and certificate, files that should not be served (`.env`, `.git`, source maps) |
 | Servers | SSH and nginx settings, listening database ports, pending security updates, packages with distro advisories (from the read-only collector's output) |
 

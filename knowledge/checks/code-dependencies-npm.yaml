@@ -1,0 +1,13 @@
+id: code-dependencies-npm
+type: code_dependencies
+title: npm dependencies have no known vulnerabilities
+why: 'A library with a published vulnerability gives attackers a ready-made way in, and the details of how to exploit it are often public.'
+severity: high
+applies_to: [code]
+params:
+  ecosystem: npm
+fix_hints:
+  any: 'Run "npm audit" to see the fixed versions, then "npm audit fix" or raise the version in package.json; re-run the tests. For a dev-only package the risk is to developers and CI, not to users.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Vulnerable_Dependency_Management_Cheat_Sheet.html
+added_by: seed
+review: approved

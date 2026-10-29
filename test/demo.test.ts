@@ -12,16 +12,27 @@ import { git } from './helpers/git.js';
 import { ScriptedPrompter } from './helpers/prompter.js';
 import { FAKE } from './helpers/secrets.js';
 import { tempDir } from './helpers/tmp.js';
+import { NO_ADVISORIES } from './helpers/ctx.js';
 
 const NOW = () => new Date('2026-10-28T10:00:00.000Z');
+/** OSV as the demo needs it: the two old pins have advisories. No network. */
+const OSV_FAKE = {
+  ...NO_ADVISORIES,
+  osv: {
+    affected: async (_e: string, qs: ReadonlyArray<{ name: string }>) => new Set(qs.map((q) => q.name).filter((n) => n === 'lodash' || n === 'express')),
+    vulnsFor: async (_e: string, q: { name: string }) => [{ id: `GHSA-demo-${q.name}` }],
+    vuln: async () => null,
+  },
+};
 
 describe('demo project', () => {
-  it('leaks in all four ways the code checks look for, and holds no real secret', async () => {
+  it('leaks in every way the code checks look for, and holds no real secret', async () => {
     const dir = await tempDir();
     await createDemoProject(dir);
     await initProject(dir, {});
-    const record = await scanNoAi(dir, { only: ['code'], now: NOW });
+    const record = await scanNoAi(dir, { only: ['code'], now: NOW, advisories: OSV_FAKE });
     expect(record.findings.filter((f) => f.status === 'open').map((f) => f.id).sort()).toEqual([
+      'code-dependencies-npm@code',
       'code-env-files-tracked@code',
       'code-env-not-ignored@code',
       'code-secrets-history@code',
@@ -73,7 +84,7 @@ describe('the demo, end to end', () => {
         printed += c.toString();
       });
       const prompter = new ScriptedPrompter([undefined, ['code', 'web'], server.url, true, 'web', 'dev', false, 'office', true, 'exit']);
-      expect(await runWizard(dir, { prompter, out, style: createStyle({ isTTY: false }), now: NOW, openFile: async () => true })).toBe(0);
+      expect(await runWizard(dir, { prompter, out, style: createStyle({ isTTY: false }), now: NOW, openFile: async () => true, advisories: OSV_FAKE })).toBe(0);
       prompter.done();
       expect(printed).toContain('Needs attention');
       const md = readFileSync(path.join(dir, '.secagent', 'reports', 'latest.md'), 'utf8');

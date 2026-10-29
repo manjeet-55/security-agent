@@ -34,7 +34,20 @@ export async function createDemoProject(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
   if ((await readdir(dir)).length > 0) throw new Error(`${dir} is not empty; pick a new folder for the demo project`);
   git(dir, 'init', '-q', '-b', 'main');
-  await put(dir, 'package.json', `${JSON.stringify({ name: 'demo-shop', version: '1.0.0', dependencies: { express: '4.17.1' } }, null, 2)}\n`);
+  await put(dir, 'package.json', `${JSON.stringify({ name: 'demo-shop', version: '1.0.0', dependencies: { express: '4.17.1', lodash: '4.17.15' } }, null, 2)}\n`);
+  // Old versions with published advisories, so the dependency check has something to find.
+  const lock = {
+    name: 'demo-shop',
+    version: '1.0.0',
+    lockfileVersion: 3,
+    requires: true,
+    packages: {
+      '': { name: 'demo-shop', version: '1.0.0', dependencies: { express: '4.17.1', lodash: '4.17.15' } },
+      'node_modules/express': { version: '4.17.1' },
+      'node_modules/lodash': { version: '4.17.15' },
+    },
+  };
+  await put(dir, 'package-lock.json', `${JSON.stringify(lock, null, 2)}\n`);
   await put(dir, 'src/config.js', `// Payment and cloud settings for the demo shop.\nmodule.exports = {\n  awsAccessKeyId: '${FAKE_AWS_KEY_ID}',\n  stripeSecretKey: '${FAKE_STRIPE_KEY}',\n};\n`);
   await put(dir, '.env', 'DB_PASSWORD=demo-password\nSESSION_SECRET=demo-secret\n');
   git(dir, 'add', '-A');
