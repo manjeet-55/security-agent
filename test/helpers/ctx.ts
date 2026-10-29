@@ -71,6 +71,10 @@ export function targetSubject(ctx: CheckContext): Extract<CheckSubject, { kind: 
   return { kind: 'target', target };
 }
 
+export function codeSubject(dir: string): Extract<CheckSubject, { kind: 'code' }> {
+  return { kind: 'code', dir };
+}
+
 export function hostSubject(ctx: CheckContext): Extract<CheckSubject, { kind: 'host' }> {
   const host = ctx.project.hosts[0];
   if (!host) throw new Error('test project has no host');

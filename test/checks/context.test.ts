@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ObservationError } from '../../src/checks/errors.js';
 import { getPage, getSnapshot, subjectHostname, subjectId, subjectKind } from '../../src/checks/context.js';
-import { fakeObs, hostSubject, makeCtx, targetSubject } from '../helpers/ctx.js';
+import { codeSubject, fakeObs, hostSubject, makeCtx, targetSubject } from '../helpers/ctx.js';
 import { fixtureSnapshot, readerFor } from '../helpers/snapshots.js';
 
 describe('check context', () => {
@@ -27,6 +27,9 @@ describe('check context', () => {
     expect(subjectId(hostSubject(ctx))).toBe('web-1');
     expect(subjectKind(hostSubject(ctx))).toBe('host');
     expect(subjectHostname(hostSubject(ctx))).toBe('203.0.113.10');
+    expect(subjectId(codeSubject('/tmp/x'))).toBe('code');
+    expect(subjectKind(codeSubject('/tmp/x'))).toBe('code');
+    expect(() => subjectHostname(codeSubject('/tmp/x'))).toThrow(/no network address/);
   });
 });
 

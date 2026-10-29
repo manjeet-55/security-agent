@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { projectStateDir } from '../paths.js';
 
-export type EvidenceKind = 'http' | 'tls' | 'tcp' | 'note' | 'snapshot' | 'advisory';
+export type EvidenceKind = 'http' | 'tls' | 'tcp' | 'note' | 'snapshot' | 'advisory' | 'code';
 
 export interface EvidenceRecord {
   id: string;

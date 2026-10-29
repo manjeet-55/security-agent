@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { CHECK_TYPES } from '../../src/checks/registry.js';
 
 describe('CHECK_TYPES', () => {
-  it('registers all nine external check types', () => {
+  it('registers all ten check types', () => {
     expect([...CHECK_TYPES.keys()].sort()).toEqual([
+      'code_secrets',
       'exposed_path',
       'header_budget',
       'host_config',

@@ -33,6 +33,17 @@ export const HostSchema = z.object({
   allow_private: z.boolean().default(false),
 });
 
+/** Settings for the checks that scan the project directory itself (no network). */
+export const CodeSchema = z.object({
+  enabled: z.boolean().default(true),
+  /** Gitignore-style globs, relative to the project directory, that code checks leave alone. */
+  exclude: z.array(z.string()).default([]),
+  /** Scan git history for secrets that were committed once and removed since. */
+  history: z.boolean().default(true),
+  max_files: z.number().int().min(1).default(20_000),
+  max_file_bytes: z.number().int().min(1).default(1_000_000),
+});
+
 export const ProjectSchema = z
   .object({
     version: z.literal(1),
@@ -44,6 +55,7 @@ export const ProjectSchema = z
         scan_label: z.string().min(1).default('unlabelled'),
       })
       .prefault({}),
+    code: CodeSchema.prefault({}),
     targets: z.array(TargetSchema).default([]),
     hosts: z.array(HostSchema).default([]),
   })
@@ -72,6 +84,7 @@ export const ProjectSchema = z
 export type Stack = z.infer<typeof StackSchema>;
 export type Target = z.infer<typeof TargetSchema>;
 export type Host = z.infer<typeof HostSchema>;
+export type CodeConfig = z.infer<typeof CodeSchema>;
 export type ProjectConfig = z.infer<typeof ProjectSchema>;
 
 export class ProjectConfigError extends Error {

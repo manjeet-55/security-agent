@@ -1,4 +1,5 @@
 import type { AnyCheckType } from './check-type.js';
+import { codeSecretsCheck } from './types/code-secrets.js';
 import { exposedPathCheck } from './types/exposed-path.js';
 import { headerBudgetCheck } from './types/header-budget.js';
 import { hostConfigCheck } from './types/host-config.js';
@@ -20,6 +21,7 @@ const ALL: AnyCheckType[] = [
   exposedPathCheck,
   tlsCheck,
   portExposureCheck,
+  codeSecretsCheck,
 ];
 
 export const CHECK_TYPES: ReadonlyMap<string, AnyCheckType> = new Map(ALL.map((t) => [t.type, t]));

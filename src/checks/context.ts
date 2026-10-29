@@ -8,7 +8,11 @@ import type { Host, ProjectConfig, Target } from '../project/schema.js';
 import type { SubjectKind } from '../types.js';
 import { ObservationError } from './errors.js';
 
-export type CheckSubject = { kind: 'target'; target: Target } | { kind: 'host'; host: Host };
+/** `code` is the project directory itself (the one holding .secagent/); code checks never touch the network. */
+export type CheckSubject = { kind: 'target'; target: Target } | { kind: 'host'; host: Host } | { kind: 'code'; dir: string };
+
+/** Id that code results and findings carry as their target. */
+export const CODE_SUBJECT_ID = 'code';
 
 export interface CheckContext {
   project: ProjectConfig;
@@ -24,16 +28,30 @@ export interface CheckContext {
 }
 
 export function subjectId(subject: CheckSubject): string {
-  return subject.kind === 'target' ? subject.target.id : subject.host.name;
+  switch (subject.kind) {
+    case 'target':
+      return subject.target.id;
+    case 'host':
+      return subject.host.name;
+    case 'code':
+      return CODE_SUBJECT_ID;
+  }
 }
 
 export function subjectKind(subject: CheckSubject): SubjectKind {
-  return subject.kind === 'target' ? subject.target.type : 'host';
+  return subject.kind === 'target' ? subject.target.type : subject.kind;
 }
 
 /** Hostname or address that network probes for this subject go to. */
 export function subjectHostname(subject: CheckSubject): string {
-  return subject.kind === 'target' ? stripBrackets(new URL(subject.target.url).hostname) : subject.host.address;
+  switch (subject.kind) {
+    case 'target':
+      return stripBrackets(new URL(subject.target.url).hostname);
+    case 'host':
+      return subject.host.address;
+    case 'code':
+      throw new Error('code subjects have no network address');
+  }
 }
 
 export function memoize<T>(ctx: CheckContext, key: string, fn: () => Promise<T>): Promise<T> {

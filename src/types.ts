@@ -20,7 +20,7 @@ export const FINDING_STATUSES = [
 ] as const;
 export type FindingStatus = (typeof FINDING_STATUSES)[number];
 
-export const SUBJECT_KINDS = ['web', 'api', 'host'] as const;
+export const SUBJECT_KINDS = ['web', 'api', 'host', 'code'] as const;
 export type SubjectKind = (typeof SUBJECT_KINDS)[number];
 
 /** One check instance run against one target or host. */

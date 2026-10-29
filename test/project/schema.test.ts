@@ -28,6 +28,14 @@ describe('project schema', () => {
     expect(p.hosts[0]?.reachable_from).toEqual([]);
   });
 
+  it('applies defaults to the code section and validates overrides', () => {
+    expect(parseProject(VALID).code).toEqual({ enabled: true, exclude: [], history: true, max_files: 20_000, max_file_bytes: 1_000_000 });
+    const custom = parseProject(`${VALID}code:\n  enabled: false\n  exclude: [fixtures/, '*.sql']\n  history: false\n  max_files: 50\n  max_file_bytes: 2048\n`);
+    expect(custom.code).toEqual({ enabled: false, exclude: ['fixtures/', '*.sql'], history: false, max_files: 50, max_file_bytes: 2048 });
+    expect(() => parseProject(`${VALID}code:\n  max_files: 0\n`)).toThrow(/code\.max_files/);
+    expect(() => parseProject(`${VALID}code:\n  exclude: nope\n`)).toThrow(/code\.exclude/);
+  });
+
   it('rejects non-http URLs', () => {
     expect(() => parseProject(VALID.replace('https://portal.example.com', 'ftp://portal.example.com'))).toThrow(
       /targets\.0\.url/,
