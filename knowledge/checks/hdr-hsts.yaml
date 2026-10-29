@@ -1,6 +1,7 @@
 id: hdr-hsts
 type: http_header
 title: HSTS enabled with max-age of at least 180 days
+why: 'Without HSTS a browser can be tricked into loading the site over plain HTTP, where anyone on the same network can read or change the traffic.'
 severity: medium
 applies_to: [web, api]
 params:

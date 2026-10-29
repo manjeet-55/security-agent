@@ -1,6 +1,7 @@
 id: tls-cert-valid
 type: tls
 title: Certificate is trusted, matches the hostname and has at least 21 days left
+why: 'An invalid, mismatched or soon-to-expire certificate shows browser warnings, breaks the site for users and trains them to ignore warnings.'
 severity: high
 applies_to: [web, api]
 params:

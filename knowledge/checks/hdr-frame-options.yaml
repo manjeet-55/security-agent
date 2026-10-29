@@ -1,6 +1,7 @@
 id: hdr-frame-options
 type: http_header
 title: Framing is restricted (X-Frame-Options or CSP frame-ancestors)
+why: 'If any site may embed your pages in a frame, it can trick users into clicking buttons they cannot see (clickjacking).'
 severity: medium
 applies_to: [web]
 params:

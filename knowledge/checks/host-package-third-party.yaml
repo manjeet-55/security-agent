@@ -1,6 +1,7 @@
 id: host-package-third-party
 type: host_package
 title: Packages outside distro repositories are known and patched separately
+why: 'Packages from outside the operating system''s own repositories do not get its security updates and must be patched by hand.'
 severity: medium
 applies_to: [host]
 params:

@@ -1,6 +1,7 @@
 id: http-redirect-https
 type: http_redirect
 title: Plain HTTP permanently redirects to HTTPS on the same host
+why: 'If the plain HTTP address does not send visitors to HTTPS, people who type the address or follow old links use an unencrypted connection.'
 severity: high
 applies_to: [web, api]
 params:

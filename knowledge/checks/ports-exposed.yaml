@@ -1,6 +1,7 @@
 id: ports-exposed
 type: port_exposure
 title: Admin and database ports are not reachable from this network
+why: 'Database and admin ports reachable from this network are a direct target for password guessing and known exploits.'
 severity: high
 applies_to: [host]
 params:

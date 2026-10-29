@@ -1,6 +1,7 @@
 id: tls-modern
 type: tls
 title: Only modern (AEAD) cipher suites are accepted
+why: 'Older cipher suites have known weaknesses; accepting them lets an attacker push some connections onto weaker encryption.'
 severity: medium
 applies_to: [web, api]
 params:

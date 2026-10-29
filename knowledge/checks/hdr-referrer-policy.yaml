@@ -1,6 +1,7 @@
 id: hdr-referrer-policy
 type: http_header
 title: Referrer-Policy limits what is sent to other sites
+why: 'Without it, full page addresses, which can contain tokens or personal data, are sent to every other site the page links to or loads from.'
 severity: low
 applies_to: [web]
 params:

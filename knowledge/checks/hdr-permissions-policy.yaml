@@ -1,6 +1,7 @@
 id: hdr-permissions-policy
 type: http_header
 title: Permissions-Policy disables unused browser features
+why: 'Turning off browser features the site does not use (camera, microphone, location) means an injected script cannot use them either.'
 severity: low
 applies_to: [web]
 params:

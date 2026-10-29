@@ -1,6 +1,7 @@
 id: code-env-files-tracked
 type: code_secrets
 title: No environment, key or credentials files are committed to git
+why: 'Files like .env and private keys hold passwords and keys. Once committed, everyone who can read the repository, now or later, can copy them.'
 severity: high
 applies_to: [code]
 params:

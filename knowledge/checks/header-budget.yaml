@@ -1,6 +1,7 @@
 id: header-budget
 type: header_budget
 title: Response headers stay well below proxy buffer limits
+why: 'Very large response headers can exceed a proxy''s buffer, so pages suddenly fail with errors for some users, usually logged-in ones.'
 severity: medium
 applies_to: [web, api]
 params:

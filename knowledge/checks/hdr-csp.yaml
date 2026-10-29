@@ -1,6 +1,7 @@
 id: hdr-csp
 type: http_header
 title: Content-Security-Policy restricts script sources
+why: 'A Content Security Policy limits which scripts a page may run. Without a strict one, a single injected script can steal user data or sessions.'
 severity: medium
 applies_to: [web]
 params:

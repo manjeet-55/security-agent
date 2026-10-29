@@ -1,6 +1,7 @@
 id: host-reboot-pending
 type: host_package
 title: No reboot is pending after updates
+why: 'Security updates to the kernel and core libraries only take effect after a restart; until then the server runs the vulnerable versions.'
 severity: medium
 applies_to: [host]
 params:

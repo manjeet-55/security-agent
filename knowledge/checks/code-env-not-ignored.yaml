@@ -1,6 +1,7 @@
 id: code-env-not-ignored
 type: code_secrets
 title: Environment, key and credentials files are covered by .gitignore
+why: 'These files are not committed yet, but nothing stops it: one routine "git add ." would publish the passwords and keys they hold.'
 severity: high
 applies_to: [code]
 params:

@@ -1,6 +1,7 @@
 id: hdr-x-powered-by
 type: http_header
 title: X-Powered-By is not sent
+why: 'This header names the framework behind the site, helping attackers pick known weaknesses to try. It serves no purpose for users.'
 severity: low
 applies_to: [web, api]
 params:

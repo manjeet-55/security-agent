@@ -15,4 +15,14 @@ describe('seed check catalog', () => {
       for (const kind of i.applies_to) expect(type?.supports).toContain(kind);
     }
   });
+
+  it('explains every seed check in plain words for the report', async () => {
+    const instances = await loadCheckInstances(GLOBAL_CHECKS_DIR, CHECK_TYPES);
+    const missing = instances.filter((i) => !i.why).map((i) => i.id);
+    expect(missing).toEqual([]);
+    for (const i of instances) {
+      expect(i.why?.length, i.id).toBeGreaterThanOrEqual(40);
+      expect(i.why?.length, i.id).toBeLessThanOrEqual(300);
+    }
+  });
 });

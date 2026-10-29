@@ -1,6 +1,7 @@
 id: tls-no-legacy
 type: tls
 title: TLS 1.0 and 1.1 are refused
+why: 'TLS 1.0 and 1.1 are retired because of known weaknesses; accepting them allows weaker encryption for some connections.'
 severity: high
 applies_to: [web, api]
 params:

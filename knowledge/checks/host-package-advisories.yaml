@@ -1,6 +1,7 @@
 id: host-package-advisories
 type: host_package
 title: Installed packages have no distro security fixes pending
+why: 'These installed packages have published security fixes that are not installed yet; the vulnerabilities they fix are public knowledge.'
 severity: high
 applies_to: [host]
 params:

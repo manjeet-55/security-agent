@@ -1,6 +1,7 @@
 id: hdr-server-version
 type: http_header
 title: Server header does not disclose a version
+why: 'Publishing the exact server version tells attackers which known vulnerabilities to try first.'
 severity: low
 applies_to: [web, api]
 params:

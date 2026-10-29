@@ -1,6 +1,7 @@
 id: host-auto-upgrades
 type: host_config
 title: Automatic security updates are enabled
+why: 'Without automatic security updates, fixes for known vulnerabilities wait until someone remembers to install them by hand.'
 severity: medium
 applies_to: [host]
 params:

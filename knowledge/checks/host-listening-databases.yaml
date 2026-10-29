@@ -1,6 +1,7 @@
 id: host-listening-databases
 type: host_config
 title: Databases and admin services do not listen on all interfaces
+why: 'A database or admin service listening on every network interface can be reached from outside if a firewall rule is ever wrong.'
 severity: high
 applies_to: [host]
 params:

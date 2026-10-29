@@ -1,6 +1,7 @@
 id: exposed-paths
 type: exposed_path
 title: Secrets, repository metadata and source maps are not served
+why: 'Files such as .env, .git or source maps on the live site can hand attackers passwords, the full source code, or a map of the application.'
 severity: high
 applies_to: [web, api]
 params:

@@ -1,6 +1,7 @@
 id: cookie-flags
 type: http_cookie
 title: Cookies set Secure, HttpOnly and SameSite
+why: 'Without these flags a login cookie can be stolen by injected scripts, sent over plain HTTP, or used by other sites to act as the user.'
 severity: medium
 applies_to: [web, api]
 params:

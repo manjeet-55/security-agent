@@ -1,6 +1,7 @@
 id: host-nginx-ssl-protocols
 type: host_config
 title: nginx ssl_protocols excludes SSLv3, TLS 1.0 and TLS 1.1
+why: 'Old protocols such as TLS 1.0 and 1.1 have known weaknesses that let attackers weaken or break the encryption of the connection.'
 severity: medium
 applies_to: [host]
 params:

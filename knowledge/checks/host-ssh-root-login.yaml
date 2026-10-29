@@ -1,6 +1,7 @@
 id: host-ssh-root-login
 type: host_config
 title: SSH root login is disabled or key-only
+why: 'Allowing root to log in with a password gives attackers the most powerful account to guess, with no second step needed.'
 severity: medium
 applies_to: [host]
 params:

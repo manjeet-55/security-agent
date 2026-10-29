@@ -1,6 +1,7 @@
 id: host-nginx-server-tokens
 type: host_config
 title: nginx hides its version (server_tokens off)
+why: 'nginx shows its version on error pages and headers, which tells attackers which known vulnerabilities apply.'
 severity: low
 applies_to: [host]
 params:
