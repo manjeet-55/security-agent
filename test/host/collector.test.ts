@@ -107,6 +107,81 @@ describe.runIf(linuxWithSh)('collector.sh', () => {
     expect(out).toContain('env SECRET_ENVVAL=<redacted>;');
   });
 
+  describe('redaction hardening (secure_link, headers-more, comments, one-line blocks, blank lines, brace counting)', () => {
+    const input = [
+      '\tsecure_link_md5 "$secure_link_expires$uri$remote_addr LEAK_MD5_SECRET";',
+      '\tsecure_link_secret LEAK_TRAILCOMMENT; # used by /dl',
+      '\tlocation /p { secure_link_secret LEAK_INLINE_BLOCK; }',
+      '\tsecure_link_secret "LEAK_QUOTED;SEMICOLON"; # c',
+      '\t# secure_link_secret LEAK_COMMENTED_OUT;',
+      '\tmore_set_headers "Authorization: Basic LEAK_MORESET_BASIC";',
+      '\tmore_set_input_headers "Authorization: Basic LEAK_MORESETINPUT";',
+      "\tmore_set_headers 'X-Api-Key: LEAK_MORESET_APIKEY';",
+      "\tmore_set_headers -s 200 'Set-Cookie: sid=LEAK_MORESET_COOKIE' 'X-Frame-Options: DENY';",
+      '\tmore_set_headers X-Session-Token:LEAK_MORESET_BARE;',
+      "\tmore_set_headers 'Server: nginx';",
+      '\tset $jwt "LEAK_SETJWT";',
+      '\tset $my_jwt_value LEAK_SETJWT2;',
+      '\tproxy_set_header Authorization',
+      '',
+      '\t# the value follows',
+      '\t    "Basic LEAK_AFTER_BLANK";',
+      '\tapi_key LEAK_APIKEY_DIRECTIVE;',
+      '\tsecure_link_secret',
+      '\t    LEAK_NEXTLINE_DIRECTIVE;',
+      '\tmap $uri $x {',
+      '\t    ~^/a{2}$ LEAK_BEFORE_REGEX_BRACE;',
+      '\t    "LEAK_AFTER_REGEX_BRACE" 2;',
+      '\t    "~^(a|b){1,3}$" LEAK_AFTER_QUOTED_BRACES;',
+      '\t    default 0;',
+      '\t}',
+      '\tgeo $g {',
+      '\t    default 0;',
+      '\t    10.0.0.0/8 LEAK_GEO_NESTED; # { not a block',
+      '\t}',
+      '\tserver_tokens off;',
+      '\tssl_protocols TLSv1.2 TLSv1.3;',
+      '\tssl_password_file /etc/nginx/pw.txt;',
+      '\tproxy_set_header Host $host;',
+      '\tlisten 443 ssl; # token rotation: monthly',
+    ].join('\n');
+    const secrets = [
+      'LEAK_MD5_SECRET', 'LEAK_TRAILCOMMENT', 'LEAK_INLINE_BLOCK', 'SEMICOLON', 'LEAK_COMMENTED_OUT', 'LEAK_MORESET_BASIC', 'LEAK_MORESETINPUT',
+      'LEAK_MORESET_APIKEY', 'LEAK_MORESET_COOKIE', 'LEAK_MORESET_BARE', 'LEAK_SETJWT', 'LEAK_SETJWT2', 'LEAK_AFTER_BLANK', 'LEAK_APIKEY_DIRECTIVE',
+      'LEAK_NEXTLINE_DIRECTIVE', 'LEAK_BEFORE_REGEX_BRACE', 'LEAK_AFTER_REGEX_BRACE', 'LEAK_AFTER_QUOTED_BRACES', 'LEAK_GEO_NESTED',
+    ];
+    const kept = [
+      'location /p {',
+      '# used by /dl',
+      "more_set_headers 'Server: nginx';",
+      "'X-Frame-Options: DENY'",
+      'proxy_set_header Authorization',
+      'server_tokens off;',
+      'ssl_protocols TLSv1.2 TLSv1.3;',
+      'ssl_password_file /etc/nginx/pw.txt;',
+      'proxy_set_header Host $host;',
+      'listen 443 ssl;',
+      'map $uri $x {',
+    ];
+
+    // The collector runs under whatever awk the host has: Debian and Ubuntu default to mawk, others to gawk or busybox.
+    const awks = ['mawk', 'gawk', 'busybox awk'].filter((a) => spawnSync('sh', ['-c', `command -v ${a.split(' ')[0]}`]).status === 0);
+
+    it.each(awks)('redacts every planted secret and keeps what the checks need (%s)', (awk) => {
+      const run = spawnSync('sh', ['-c', `awk() { ${awk} "$@"; }\n${extractRedact()}\nredact`], { input, encoding: 'utf8' });
+      expect(run.status).toBe(0);
+      for (const secret of secrets) expect(run.stdout, secret).not.toContain(secret);
+      for (const keep of kept) expect(run.stdout, keep).toContain(keep);
+    });
+
+    it('redacts the whole value of secure_link_md5 and secure_link_secret', () => {
+      const run = spawnSync('sh', ['-c', `${extractRedact()}\nredact`], { input, encoding: 'utf8' });
+      expect(run.stdout).toContain('secure_link_md5 <redacted>;');
+      expect(run.stdout).toContain('secure_link_secret <redacted>; # used by /dl');
+      expect(run.stdout).toContain('location /p { secure_link_secret <redacted>; }');
+    });
+  });
+
   it('emit yields JSON with rc and b64 per section', () => {
     const head = SCRIPT.slice(0, SCRIPT.indexOf('emit uid'));
     const script = `${head}emit ok 'echo hello'\nemit bad 'echo oops; exit 3'\nprintf '}}\\n'\n`;
