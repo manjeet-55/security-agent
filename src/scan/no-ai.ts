@@ -38,6 +38,8 @@ export interface ScanDeps {
   only?: readonly ScanGroup[];
   /** When the person running a guided scan confirmed they may test the systems in scope; recorded in the scan record. */
   consentAt?: Date;
+  /** How the scan was started, recorded in the scan record and named in the report. */
+  trigger?: 'wizard' | 'cli' | 'mcp';
   /** Called once before the first check with how many will run. */
   onPlan?: (total: number) => void;
   /** Called after each check, with the group it belongs to. */
@@ -92,6 +94,7 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
     scan_label: project.network.scan_label,
     mode: 'no-ai',
     ...(deps.consentAt ? { consent_at: deps.consentAt.toISOString() } : {}),
+    ...(deps.trigger ? { trigger: deps.trigger } : {}),
     groups_run: SCAN_GROUPS.filter((g) => groups.has(g) && (g !== 'code' || runCode)),
     results: allResults,
     findings: allFindings,

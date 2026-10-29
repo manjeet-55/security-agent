@@ -50,6 +50,8 @@ export const ScanRecordSchema = z.object({
   consent_at: z.iso.datetime().optional(),
   /** The groups this scan ran. Results of the other groups were carried over from an earlier scan. Absent: all of them. */
   groups_run: z.array(z.enum(['code', 'web', 'host'])).optional(),
+  /** How the scan was started. Absent in older records, which read as the command line. */
+  trigger: z.enum(['wizard', 'cli', 'mcp']).optional(),
   results: z.array(CheckResultSchema),
   findings: z.array(FindingSchema),
   diff: ScanDiffSchema,

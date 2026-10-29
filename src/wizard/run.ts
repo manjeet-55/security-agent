@@ -81,6 +81,7 @@ async function scanWithProgress(dir: string, plan: WizardPlan, deps: WizardDeps)
   let current: string | undefined;
   return scanNoAi(dir, {
     only: plan.groups,
+    trigger: 'wizard',
     ...(plan.consentAt ? { consentAt: plan.consentAt } : {}),
     ...(deps.now ? { now: deps.now } : {}),
     ...(deps.net ? { net: deps.net } : {}),

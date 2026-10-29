@@ -23,6 +23,7 @@ import { SCAN_GROUPS, scanNoAi, type ScanGroup } from './scan/no-ai.js';
 import { createTtyPrompter, type Prompter } from './ui/prompt.js';
 import { createStyle } from './ui/style.js';
 import { runWizard } from './wizard/run.js';
+import { runMcpStdio } from './mcp/server.js';
 import { SEVERITY_RANK } from './types.js';
 import { verifyClaim, type ClaimResult } from './verify/claim.js';
 import { loadReportInput } from './report/model.js';
@@ -59,6 +60,8 @@ Commands:
   learn      Refresh CISA KEV and the package advisories for every stored host snapshot
             --dir <path>
   report     Re-render the report of the latest scan (.secagent/reports/latest.*)
+            --dir <path>
+  mcp        Serve this project to an AI client (MCP over stdio): run_scan, get_findings, get_report, get_evidence, verify_claim
             --dir <path>
 `;
 
@@ -152,6 +155,7 @@ async function runScan(args: string[], deps: CliDeps): Promise<number> {
     throw new UsageError('--only code was asked for, but the code checks are turned off (code.enabled is false in project.yaml)');
   }
   const record = await scanNoAi(dir, {
+    trigger: 'cli',
     ...(only.length > 0 ? { only } : {}),
     ...(deps.now ? { now: deps.now } : {}),
     ...(deps.advisories ? { advisories: deps.advisories } : {}),
@@ -169,6 +173,14 @@ async function printReport(dir: string): Promise<void> {
   if (!input) throw new UsageError('No scan yet: run secagent scan --no-ai first');
   const { latest } = await writeReport(dir, input, { formats: REPORT_FORMATS });
   for (const file of latest) console.log(`Report: ${file}`);
+}
+
+async function runMcp(args: string[], deps: CliDeps): Promise<number> {
+  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  const dir = path.resolve(values.dir);
+  await loadProject(dir);
+  await runMcpStdio({ projectDir: dir, ...clockOf(deps), ...(deps.advisories ? { advisories: deps.advisories } : {}) });
+  return 0;
 }
 
 async function runReport(args: string[]): Promise<number> {
@@ -346,6 +358,8 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
         return await runLearn(rest, deps);
       case 'report':
         return await runReport(rest);
+      case 'mcp':
+        return await runMcp(rest, deps);
       case undefined:
         if (isTerminal(deps)) return await runStart(rest, deps);
         console.log(USAGE);

@@ -186,5 +186,7 @@ describe('buildReport', () => {
     expect(cli).toContain('A check that could not run is never counted as passed.');
     expect(cli).toContain('Secret values are never shown, only the file, line and a fingerprint.');
     expect(about(build({ consent_at: '2026-10-28T09:59:00.000Z' }))).toContain('Scope confirmed by the person running the scan on 2026-10-28 09:59 UTC.');
+    expect(about(build({ trigger: 'mcp' }))).toContain('Run by an AI assistant through the MCP server, for the websites and servers listed in project.yaml.');
+    expect(about(build({ trigger: 'cli' }))).toContain('Run from the command line.');
   });
 });

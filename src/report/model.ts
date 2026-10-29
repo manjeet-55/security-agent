@@ -223,7 +223,13 @@ function about(input: ReportInput): Block[] {
       .sort();
     lines.push(`Not re-checked in this scan: ${earlier.map((a) => AREA_LABEL[a]).join(', ')}. Their results are from an earlier scan${times[0] ? ` (${times[0]})` : ''} and may be out of date.`);
   }
-  lines.push(record.consent_at ? `Scope confirmed by the person running the scan on ${formatTime(record.consent_at)}.` : 'Run from the command line.');
+  lines.push(
+    record.consent_at
+      ? `Scope confirmed by the person running the scan on ${formatTime(record.consent_at)}.`
+      : record.trigger === 'mcp'
+        ? 'Run by an AI assistant through the MCP server, for the websites and servers listed in project.yaml.'
+        : 'Run from the command line.',
+  );
   lines.push(
     'Method: read-only requests to the listed systems and local reads of this folder; no AI, so the same inputs give the same result.',
     'A check that could not run is never counted as passed.',
