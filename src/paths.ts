@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,4 +17,13 @@ export function projectStateDir(projectDir: string): string {
 /** <project>/.secagent/knowledge: notes.md, exceptions.yaml and the project's own lessons (these are committed). */
 export function projectKnowledgeDir(projectDir: string): string {
   return path.join(projectStateDir(projectDir), 'knowledge');
+}
+
+/** The version in the package's own package.json ("0.0.0" if it cannot be read). */
+export function packageVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
 }

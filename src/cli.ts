@@ -30,7 +30,7 @@ import { KbError } from './kb/lesson.js';
 import { loadLessons } from './kb/store.js';
 import { loadCheckInstances } from './checks/catalog.js';
 import { CHECK_TYPES } from './checks/registry.js';
-import { GLOBAL_CHECKS_DIR, GLOBAL_KNOWLEDGE_DIR, GLOBAL_LESSONS_DIR } from './paths.js';
+import { GLOBAL_CHECKS_DIR, GLOBAL_KNOWLEDGE_DIR, GLOBAL_LESSONS_DIR, packageVersion } from './paths.js';
 import { SEVERITY_RANK } from './types.js';
 import { verifyClaim, type ClaimResult } from './verify/claim.js';
 import { loadReportInput } from './report/model.js';
@@ -46,6 +46,7 @@ export class UsageError extends Error {
 const USAGE = `secagent <command> [options]
 
 Commands:
+  version    Print the version
   start   Guided scan: asks what to check, scans, and writes a Markdown and PDF report (default when run with no command)
             --dir <path>           project directory (default: .)
   init    Create .secagent/ in a project, detect its stack, write project.yaml
@@ -401,6 +402,11 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
       case undefined:
         if (isTerminal(deps)) return await runStart(rest, deps);
         console.log(USAGE);
+        return 0;
+      case '--version':
+      case '-v':
+      case 'version':
+        console.log(`secagent ${packageVersion()}`);
         return 0;
       case 'help':
       case '--help':

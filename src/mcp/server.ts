@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { PACKAGE_ROOT } from '../paths.js';
+import { packageVersion } from '../paths.js';
 import { ServerState, type ServerOptions } from './state.js';
 import { registerKbTools } from './tools/kb.js';
 import { registerProjectTools } from './tools/project.js';
@@ -24,17 +22,9 @@ export const SERVER_INSTRUCTIONS = [
   '- You cannot change which websites or servers are probed; only a person editing .secagent/project.yaml can.',
 ].join('\n');
 
-function version(): string {
-  try {
-    return (JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
-}
-
 export function createMcpServer(opts: ServerOptions): { server: McpServer; state: ServerState } {
   const state = new ServerState(opts);
-  const server = new McpServer({ name: 'secagent', version: version() }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: 'secagent', version: packageVersion() }, { instructions: SERVER_INSTRUCTIONS });
   registerProjectTools(server, state);
   registerScanTools(server, state);
   registerReadTools(server, state);

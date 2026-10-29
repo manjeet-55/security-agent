@@ -221,6 +221,13 @@ describe('main', () => {
     expect(await main(['init', '--bogus'])).toBe(1);
   });
 
+  it('prints its version', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    for (const flag of ['--version', '-v', 'version']) expect(await main([flag])).toBe(0);
+    const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+    expect(log.mock.calls).toEqual([[`secagent ${version}`], [`secagent ${version}`], [`secagent ${version}`]]);
+  });
+
   it('prints usage with no command', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     expect(await main([], { tty: false })).toBe(0);
