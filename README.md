@@ -72,6 +72,18 @@ claude mcp add secagent -- secagent mcp --dir /path/to/your-project
 
 Or install the Claude Code plugin, which adds the server and a `/security-review` command: `claude plugin marketplace add /path/to/secagent`, then `claude plugin install secagent@secagent`. The playbook AI clients follow is `agent/AGENTS.md`.
 
+## Check that everything is set up
+
+`secagent doctor` checks Node, git, the project, whether the scope is confirmed on this machine, server snapshot age, the last scan and whether the advisory database is reachable, and says how to fix whatever is wrong. `secagent mcp setup` prints the exact command that connects Claude Code (or a JSON config for another client) to this folder.
+
+## Use it in CI
+
+```bash
+secagent scan --only code --fail-on high
+```
+
+prints the findings, writes the reports, and exits 1 when an open finding is high or critical. The repository's own workflow (`.github/workflows/ci.yml`) shows the typecheck, test and build steps.
+
 ## Commands for scripts and CI
 
 `secagent` with no command only starts the guided scan on a terminal; elsewhere it prints this list.
@@ -80,7 +92,9 @@ Or install the Claude Code plugin, which adds the server and a `/security-review
 |---|---|
 | `secagent start [--dir]` | The guided scan |
 | `secagent init [--dir] [--target id=url,web\|api,env] [--host name=address,env]` | Create `.secagent/` and `project.yaml` without questions |
-| `secagent scan --no-ai [--only code\|web\|host]` | Run the checks and write the reports |
+| `secagent scan [--only code\|web\|host] [--fail-on <severity>]` | Run the checks and write the reports; with `--fail-on`, exit 1 on an open finding at that severity or above |
+| `secagent doctor` | Check the machine and project, with a fix for each problem |
+| `secagent mcp setup` | Print the command that connects an AI client to this folder |
 | `secagent report` | Re-render the report of the latest scan |
 | `secagent collector --host <name>` | Print the read-only collector script for a server |
 | `secagent snapshot add --host <name> <file>` | Store the collector's output |
