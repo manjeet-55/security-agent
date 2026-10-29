@@ -1,12 +1,23 @@
+import { rmSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { onTestFinished } from 'vitest';
 
-/** A fresh directory under the OS temp dir, removed (with everything in it) when the calling test finishes. Call it from inside a test. */
+const removeAtExit = new Set<string>();
+
+/**
+ * A fresh directory under the OS temp dir, removed (with everything in it) when the calling test finishes. Outside a test (a hook,
+ * or a script that imports the helpers) it is removed when the process exits instead.
+ */
 export async function tempDir(prefix = 'secagent-'): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
-  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  try {
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  } catch {
+    if (removeAtExit.size === 0) process.once('exit', () => removeAtExit.forEach((d) => rmSync(d, { recursive: true, force: true })));
+    removeAtExit.add(dir);
+  }
   return dir;
 }
 
