@@ -9,6 +9,7 @@ import { httpCookieCheck } from './types/http-cookie.js';
 import { httpCorsCheck } from './types/http-cors.js';
 import { httpHeaderCheck } from './types/http-header.js';
 import { httpRedirectCheck } from './types/http-redirect.js';
+import { lbBypassCheck } from './types/lb-bypass.js';
 import { portExposureCheck } from './types/port-exposure.js';
 import { tlsCheck } from './types/tls.js';
 
@@ -24,6 +25,7 @@ const ALL: AnyCheckType[] = [
   exposedPathCheck,
   tlsCheck,
   portExposureCheck,
+  lbBypassCheck,
   codeSecretsCheck,
   codeDependenciesCheck,
 ];

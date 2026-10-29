@@ -10,8 +10,8 @@ Run `secagent` in a project folder. It:
 
 1. looks at the project (stack, git) and **asks for what it needs**: deployed URLs, environment, servers, where you are scanning from;
 2. shows what it will do and **asks for permission** before touching any website or server;
-3. scans **code** (secrets, `.env` and key files, git history, npm dependencies), **websites and APIs** (security headers, cookies, redirects, TLS, exposed files) and **servers** (SSH, nginx, packages against distro advisories) with live progress;
-4. writes a **report anyone can read**, as Markdown and PDF: a verdict, what to fix first, and for each finding what was found, why it matters, how to fix it for your stack, and the evidence.
+3. scans **code** (secrets, `.env` and key files, git history, npm dependencies), **websites and APIs** (security headers, cookies, CORS, redirects, TLS, exposed files) and **servers** (SSH, nginx, packages against distro advisories, load-balancer bypass) with live progress;
+4. writes a **report anyone can read**, as Markdown, PDF and HTML: a verdict, what to fix first, and for each finding what was found, why it matters, how to fix it for your stack, and the evidence.
 
 An AI assistant (Claude Code, Cursor, any MCP client) can drive the same scan through `secagent mcp`. It explains and prioritises; secagent still decides every status.
 
@@ -31,12 +31,13 @@ TypeScript on Node 20+, three runtime dependencies besides the MCP SDK (`yaml`, 
 | Layer | Where | Does |
 |---|---|---|
 | Guided scan | `src/wizard/`, `src/ui/` | questions, consent, live progress, result screen; a small prompt layer on `node:readline` |
-| Engine | `src/scan/`, `src/checks/` | 12 check types, 31 seed checks as YAML (stack-specific fixes, plain-language "why"), run through a scope guard |
+| Engine | `src/scan/`, `src/checks/` | 13 check types, 32 seed checks as YAML (stack-specific fixes, plain-language "why"), run through a scope guard |
 | Code scanner | `src/code/` | secret patterns with entropy filter, `.env`/key hygiene, streamed git-history scan with limits |
 | Evidence and findings | `src/evidence/`, `src/findings/` | recorded observations, stable finding ids, diff between scans, accepted risks |
 | Report | `src/report/` | one block model, two renderers (Markdown, PDF) |
 | Knowledge base | `knowledge/`, `src/kb/` | seven sourced lessons from real remediations, per-project lessons and exceptions |
-| MCP server | `src/mcp/` | 8 tools over stdio; cannot change what is probed or accept a risk; scanned text is marked untrusted |
+| MCP server | `src/mcp/` | 16 tools and a `security_review` prompt over stdio; cannot change what is probed, accept a risk or add a server snapshot; scanned text is marked untrusted |
+| Agent layer | `agent/` | the playbook AI clients follow, and a Claude Code plugin with a `/security-review` command |
 | Host collector | `assets/collector.sh` | read-only script run on a server, output validated and stored |
 
 About 1,000 automated tests, including real HTTPS/TLS servers, real git repositories, a real MCP client over stdio, and the built binary run in a terminal.

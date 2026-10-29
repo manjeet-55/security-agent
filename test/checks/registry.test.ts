@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CHECK_TYPES } from '../../src/checks/registry.js';
 
 describe('CHECK_TYPES', () => {
-  it('registers all twelve check types', () => {
+  it('registers all thirteen check types', () => {
     expect([...CHECK_TYPES.keys()].sort()).toEqual([
       'code_dependencies',
       'code_secrets',
@@ -14,6 +14,7 @@ describe('CHECK_TYPES', () => {
       'http_cors',
       'http_header',
       'http_redirect',
+      'lb_bypass',
       'port_exposure',
       'tls',
     ]);

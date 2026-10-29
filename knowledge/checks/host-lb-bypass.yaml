@@ -1,0 +1,13 @@
+id: host-lb-bypass
+type: lb_bypass
+title: A server behind a load balancer does not answer on its own address
+why: 'If the server answers on its own address, anyone can skip the load balancer and with it the firewall rules, rate limits and certificate it applies.'
+severity: medium
+applies_to: [host]
+params: {}
+fix_hints:
+  aws: 'Allow ports 80/443 on the instance security group only from the load balancer security group, not from 0.0.0.0/0.'
+  any: 'Firewall the server so only the load balancer (and your monitoring) can reach ports 80 and 443; health checks must come from an allowed source.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Infrastructure_as_Code_Security_Cheat_Sheet.html
+added_by: seed
+review: approved
