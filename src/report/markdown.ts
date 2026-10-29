@@ -34,7 +34,7 @@ function renderBlock(b: Block): string {
     case 'verdict':
       return `> ${TONE_MARK[b.tone]} **${escapeText(b.text)}**`;
     case 'heading':
-      return `${'#'.repeat(b.level)} ${escapeText(b.text)}`;
+      return `${'#'.repeat(b.level)} ${b.severity ? `${b.severity.toUpperCase()} · ` : ''}${escapeText(b.text)}`;
     case 'paragraph':
       return renderSpans(b.spans);
     case 'fields':

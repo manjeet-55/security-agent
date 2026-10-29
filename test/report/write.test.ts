@@ -28,4 +28,15 @@ describe('writeReport', () => {
     expect(readFileSync(out.latest[0]!, 'utf8')).toBe(readFileSync(out.files[0]!, 'utf8'));
     expect(readFileSync(out.latest[0]!, 'utf8')).toContain('# Security report: shop');
   });
+
+  it('writes the PDF next to the Markdown, with a latest copy', async () => {
+    const dir = await tempDir();
+    await initProject(dir, { name: 'shop' });
+    await new FindingsStore(dir).write(fixtureRecord());
+    const out = await writeReport(dir, (await loadReportInput(dir))!, { formats: ['md', 'pdf'] });
+    const reports = path.join(dir, '.secagent', 'reports');
+    expect(out.latest).toEqual([path.join(reports, 'latest.md'), path.join(reports, 'latest.pdf')]);
+    expect(readFileSync(path.join(reports, '20261028-100000', 'report.pdf')).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(readFileSync(out.latest[1]!).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+  });
 });

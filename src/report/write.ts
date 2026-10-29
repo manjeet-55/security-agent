@@ -2,6 +2,7 @@ import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { projectStateDir } from '../paths.js';
 import { renderMarkdown } from './markdown.js';
+import { renderPdf } from './pdf.js';
 import { buildReport, type ReportInput } from './model.js';
 
 export type ReportFormat = 'md' | 'pdf';
@@ -21,8 +22,12 @@ export async function writeReport(projectDir: string, input: ReportInput, opts: 
   const latest: string[] = [];
   for (const format of opts.formats) {
     const file = path.join(dir, `report.${format}`);
-    if (format === 'md') await writeFile(file, renderMarkdown(blocks), 'utf8');
-    else throw new Error('pdf rendering arrives in Task 3');
+    if (format === 'md') {
+      await writeFile(file, renderMarkdown(blocks), 'utf8');
+    } else {
+      const title = `Security report: ${input.project.name}`;
+      await writeFile(file, await renderPdf(blocks, { title, footer: `secagent · ${input.project.name}`, createdAt: new Date(iso) }));
+    }
     const copy = path.join(reports, `latest.${format}`);
     await copyFile(file, copy);
     files.push(file);

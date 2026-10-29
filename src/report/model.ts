@@ -33,6 +33,20 @@ export interface ReportInput {
 }
 
 const FIX_FIRST = 5;
+const FIX_FIRST_CHARS = 160;
+
+/** Check titles state the goal ("No secrets in the git history"); an open finding is that goal failing. */
+function failedTitle(f: Finding): string {
+  return `Failed: ${f.title}`;
+}
+
+/** The first sentence of the fix, cut to fit one or two lines. */
+function shortFix(f: Finding): string | undefined {
+  const first = fixText(f)?.split('\n')[0];
+  if (!first) return undefined;
+  const sentence = /^.*?[.!?](?=\s|$)/.exec(first)?.[0] ?? first;
+  return sentence.length <= FIX_FIRST_CHARS ? sentence : `${sentence.slice(0, FIX_FIRST_CHARS - 1).trimEnd()}…`;
+}
 
 export function areaOf(instance: CheckInstance | undefined): Area {
   if (instance?.applies_to.includes('code')) return 'code';
@@ -104,8 +118,8 @@ function atAGlance(input: ReportInput): Block[] {
 function fixFirst(input: ReportInput, open: Finding[]): Block[] {
   if (open.length === 0) return [];
   const items = open.slice(0, FIX_FIRST).map((f): Span[] => {
-    const first = fixText(f)?.split('\n')[0];
-    return [{ text: f.title, bold: true }, { text: ` — ${whereOf(input.project, f.target)}${first ? ` — ${first}` : ''}` }];
+    const fix = shortFix(f);
+    return [{ text: failedTitle(f), bold: true }, { text: ` — ${whereOf(input.project, f.target)}${fix ? ` — ${fix}` : ''}` }];
   });
   return [{ kind: 'heading', level: 2, text: 'Fix first' }, { kind: 'list', items }];
 }
@@ -125,7 +139,7 @@ function findingsSection(input: ReportInput, open: Finding[]): Block[] {
       ...(instance ? [{ label: 'Learn more', spans: [{ text: instance.source_url, href: instance.source_url }] }] : []),
       { label: 'Evidence', spans: f.evidence.flatMap((id, i) => [...(i > 0 ? [{ text: ', ' }] : []), { text: id, code: true }]) },
     ];
-    blocks.push({ kind: 'heading', level: 3, text: `${f.severity.toUpperCase()}: ${f.title}`, severity: f.severity }, { kind: 'fields', items });
+    blocks.push({ kind: 'heading', level: 3, text: failedTitle(f), severity: f.severity }, { kind: 'fields', items });
   }
   return blocks;
 }

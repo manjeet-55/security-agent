@@ -9,7 +9,7 @@ describe('renderMarkdown', () => {
       { kind: 'title', text: 'Security report: shop', meta: 'Scanned today' },
       { kind: 'verdict', tone: 'red', text: 'Needs attention' },
       { kind: 'heading', level: 2, text: 'Findings' },
-      { kind: 'heading', level: 3, text: 'HIGH: Leak', severity: 'high' },
+      { kind: 'heading', level: 3, text: 'Failed: Leak', severity: 'high' },
       { kind: 'paragraph', spans: [{ text: 'plain ' }, { text: 'bold', bold: true }, { text: ' and ' }, { text: 'a_b', code: true }] },
       { kind: 'fields', items: [{ label: 'How to fix', spans: [{ text: 'line one\nline two' }] }, { label: 'Learn more', spans: [{ text: 'docs', href: 'https://x.example/a' }] }] },
       { kind: 'list', items: [[{ text: 'first' }], [{ text: 'second' }]] },
@@ -25,7 +25,7 @@ describe('renderMarkdown', () => {
         '',
         '## Findings',
         '',
-        '### HIGH: Leak',
+        '### HIGH · Failed: Leak',
         '',
         'plain **bold** and `a_b`',
         '',
@@ -51,7 +51,7 @@ describe('renderMarkdown', () => {
 
   it('turns a whole report into Markdown with every section', () => {
     const md = renderMarkdown(buildReport({ project: fixtureProject(), record: fixtureRecord(), instances: fixtureInstances() }));
-    for (const h of ['# Security report: shop', '## At a glance', '## Fix first', '## Findings', '### HIGH: code-leak title', '## Could not verify', '## Passed', '## About this scan']) {
+    for (const h of ['# Security report: shop', '## At a glance', '## Fix first', '## Findings', '### HIGH · Failed: code-leak title', '## Could not verify', '## Passed', '## About this scan']) {
       expect(md).toContain(h);
     }
     expect(md).toContain('| Code | 2 | 1 | 0 |');

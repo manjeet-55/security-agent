@@ -22,11 +22,13 @@
     "dev": "tsx src/cli.ts"
   },
   "dependencies": {
+    "pdfkit": "0.20.2",
     "yaml": "2.9.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "20.19.43",
+    "@types/pdfkit": "0.17.6",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
     "vite": "7.3.7",

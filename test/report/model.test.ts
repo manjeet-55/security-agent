@@ -85,15 +85,15 @@ describe('buildReport', () => {
   it('lists what to fix first by severity, with where and the first line of the fix', () => {
     const list = section(build(), 'Fix first')[0] as Extract<Block, { kind: 'list' }>;
     expect(list.items.map(text)).toEqual([
-      "code-leak title — this project's code — Fix code-leak like this.",
-      'hdr-hsts title — https://portal.example.com — Fix hdr-hsts like this.',
+      "Failed: code-leak title — this project's code — Fix code-leak like this.",
+      'Failed: hdr-hsts title — https://portal.example.com — Fix hdr-hsts like this.',
     ]);
     expect(list.items[0]?.[0]).toMatchObject({ bold: true });
   });
 
   it('explains each open finding: where, what, why, how, learn more, evidence', () => {
     const findings = section(build(), 'Findings');
-    expect(findings[0]).toEqual({ kind: 'heading', level: 3, text: 'HIGH: code-leak title', severity: 'high' });
+    expect(findings[0]).toEqual({ kind: 'heading', level: 3, text: 'Failed: code-leak title', severity: 'high' });
     const fields = findings[1] as Extract<Block, { kind: 'fields' }>;
     expect(fields.items.map((i) => i.label)).toEqual(['Where', 'What we found', 'Why it matters', 'How to fix', 'Learn more', 'Evidence']);
     const value = (label: string) => text(fields.items.find((i) => i.label === label)?.spans ?? []);
@@ -104,6 +104,18 @@ describe('buildReport', () => {
     // a check without a "why" falls back to its title
     const second = findings[3] as Extract<Block, { kind: 'fields' }>;
     expect(text(second.items.find((i) => i.label === 'Why it matters')?.spans ?? [])).toBe('hdr-hsts title');
+  });
+
+  it('keeps Fix first to the first sentence of the fix, cut at 160 characters', () => {
+    const record = fixtureRecord();
+    const long = 'Rotate the key now, then ' + 'move it to the environment '.repeat(10) + 'please. Then a second sentence.';
+    const findings = record.findings.map((f) => (f.check_id === 'code-leak' ? { ...f, fix: { where: 'any', how: `[any] ${long}`, side_effects: [] } } : f));
+    const list = section(build({ findings }), 'Fix first')[0] as Extract<Block, { kind: 'list' }>;
+    const first = text(list.items[0] ?? []);
+    expect(first.endsWith('…')).toBe(true);
+    expect(first.split(' — ')[2]?.length).toBeLessThanOrEqual(160);
+    const short = text((section(build(), 'Fix first')[0] as Extract<Block, { kind: 'list' }>).items[0] ?? []);
+    expect(short.endsWith('Fix code-leak like this.')).toBe(true);
   });
 
   it('says so when nothing is open', () => {
