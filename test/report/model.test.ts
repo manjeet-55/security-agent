@@ -118,6 +118,17 @@ describe('buildReport', () => {
     expect(short.endsWith('Fix code-leak like this.')).toBe(true);
   });
 
+  it('names the stack on a stack-specific fix, and leaves the generic ones bare', () => {
+    const record = fixtureRecord();
+    const how = '[nginx] location ~ /\\. { deny all; }\n[apache] Require all denied\n[any] Remove the file.';
+    const findings = record.findings.map((f) => (f.check_id === 'code-leak' ? { ...f, fix: { where: 'nginx, apache, any', how, side_effects: [] } } : f));
+    const blocks = build({ findings });
+    const fields = section(blocks, 'Findings')[1] as Extract<Block, { kind: 'fields' }>;
+    expect(text(fields.items.find((i) => i.label === 'How to fix')?.spans ?? [])).toBe('nginx: location ~ /\\. { deny all; }\napache: Require all denied\nRemove the file.');
+    const first = text((section(blocks, 'Fix first')[0] as Extract<Block, { kind: 'list' }>).items[0] ?? []);
+    expect(first.endsWith('— nginx: location ~ /\\. { deny all; }')).toBe(true);
+  });
+
   it('says so when nothing is open', () => {
     const record = fixtureRecord();
     const findings = section(build({ findings: record.findings.filter((f) => f.status !== 'open') }), 'Findings');

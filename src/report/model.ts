@@ -44,7 +44,8 @@ function failedTitle(f: Finding): string {
 function shortFix(f: Finding): string | undefined {
   const first = fixText(f)?.split('\n')[0];
   if (!first) return undefined;
-  const sentence = /^.*?[.!?](?=\s|$)/.exec(first)?.[0] ?? first;
+  // A sentence ends at . ! or ? followed by a capital; a dot inside a config rule ("/\\. {") does not end it.
+  const sentence = /^.*?[.!?](?=\s+[A-Z]|$)/.exec(first)?.[0] ?? first;
   return sentence.length <= FIX_FIRST_CHARS ? sentence : `${sentence.slice(0, FIX_FIRST_CHARS - 1).trimEnd()}…`;
 }
 
@@ -90,12 +91,15 @@ function bySeverity(a: Finding, b: Finding): number {
   return SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.id.localeCompare(b.id);
 }
 
-/** The fix text without the "[any]" / "[nginx]" hint keys, one line per hint. */
+/** One line per fix hint: "nginx: ..." for a stack-specific hint, bare text for the generic "[any]" one. */
 function fixText(f: Finding): string | undefined {
   if (!f.fix) return undefined;
   return f.fix.how
     .split('\n')
-    .map((line) => line.replace(/^\[[^\]]+\]\s*/, ''))
+    .map((line) => {
+      const m = /^\[([^\]]+)\]\s*(.*)$/.exec(line);
+      return !m ? line : m[1] === 'any' ? (m[2] ?? '') : `${m[1]}: ${m[2] ?? ''}`;
+    })
     .join('\n');
 }
 
