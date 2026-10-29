@@ -632,6 +632,8 @@ secagent is project-independent. The final validation runs on a separate real pr
 
 ## 16. Delivery plan
 
+> **Amended 2026-10-29:** the next plan is the guided terminal agent with Markdown and PDF reports, see `2026-10-29-secagent-guided-agent-design.md`. The knowledge base, MCP server and playbook move to Plan 4.
+
 | Day | Scope |
 |---|---|
 | 1 | Scaffold (TS, MCP SDK, zod, yaml, vitest); `project.yaml` + `init` + stack detection; check engine with `http_redirect`, `http_header`, `http_cookie`, `header_budget`, `exposed_path`, `tls`, `port_exposure`; evidence store; findings schema and IDs; `scan --no-ai`; docker lab |

@@ -1,5 +1,7 @@
 # secagent Plan 3: Knowledge Base, MCP Server and Reports
 
+> **Moved to Plan 4 (2026-10-29).** The owner re-scoped the next step to a guided terminal agent with Markdown and PDF reports (spec `docs/superpowers/specs/2026-10-29-secagent-guided-agent-design.md`). That work is the new Plan 3. This plan is kept unchanged for Plan 4. Task 7's report block model is reused by the new Plan 3, so do Task 7 there, not here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make secagent usable from any MCP client. An MCP server (stdio) exposes the deterministic checks, host analysis, advisory tools, a file-based knowledge base and a guarded findings writer. A model-agnostic playbook (`agent/AGENTS.md`) tells the agent how to scan, triage, fix and report. `secagent init` registers the server, and a deterministic renderer writes the report.
