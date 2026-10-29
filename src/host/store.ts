@@ -59,6 +59,10 @@ export class SnapshotStore implements SnapshotReader {
     return { snapshot, file };
   }
 
+  /**
+   * The newest snapshot for a host. A file dated more than an hour ahead of the clock is bogus (wrong clock on the host, or a
+   * tampered file) and is skipped; if nothing else is stored, the error names the file to delete.
+   */
   async latest(host: string): Promise<StoredSnapshot | undefined> {
     assertHostName(host);
     let names: string[];
@@ -67,15 +71,25 @@ export class SnapshotStore implements SnapshotReader {
     } catch {
       return undefined;
     }
+    const now = this.now().getTime();
+    const future: Array<{ file: string; collected_at: string }> = [];
     let best: StoredSnapshot | undefined;
     for (const name of names.filter((n) => n.endsWith('.json'))) {
       const file = path.join(this.dir, host, name);
       try {
         const snapshot = decodeSnapshot(JSON.parse(await readFile(file, 'utf8')));
-        if (!best || snapshot.collected_at > best.snapshot.collected_at) best = { snapshot, file };
+        if (Date.parse(snapshot.collected_at) - now > MAX_FUTURE_SKEW_MS) future.push({ file, collected_at: snapshot.collected_at });
+        else if (!best || snapshot.collected_at > best.snapshot.collected_at) best = { snapshot, file };
       } catch {
         // Unreadable or invalid snapshot files are ignored; `snapshot add` validates new ones.
       }
+    }
+    if (!best && future.length > 0) {
+      const listed = future.map((f) => `${f.file} (dated ${f.collected_at})`).join(', ');
+      throw new ObservationError(
+        'SNAPSHOT_INVALID',
+        `The only snapshot(s) for host "${host}" are dated in the future: ${listed}. Check the clock on the host, delete the file(s) and re-run the collector.`,
+      );
     }
     return best;
   }

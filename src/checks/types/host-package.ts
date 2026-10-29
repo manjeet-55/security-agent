@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { distroOf } from '../../advisories/distro.js';
 import { cveIdsOf, fixedVersionFor, ubuntuPriority } from '../../advisories/osv.js';
 import type { Advisories, PackageQuery } from '../../advisories/types.js';
-import { aptListsEmpty, classifyOrigin } from '../../host/origin.js';
+import { aptListsEmpty, classifyOrigin, ORIGINS_UNAVAILABLE_MESSAGE, originsProblem } from '../../host/origin.js';
 import { describeDpkgState, isSettled, type InstalledPackage } from '../../host/parse.js';
 import { requirePackages, type HostSnapshot } from '../../host/snapshot.js';
 import { maxSeverity, SEVERITY_RANK, type Severity } from '../../types.js';
@@ -120,6 +120,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
 
     if (p.assert === 'third_party') {
       requirePackages(snapshot);
+      if (snapshot.origins_unavailable) throw new ObservationError('ORIGINS_UNAVAILABLE', ORIGINS_UNAVAILABLE_MESSAGE);
       if (aptListsEmpty(snapshot.origins)) {
         throw new ObservationError(
           'APT_LISTS_EMPTY',
@@ -187,13 +188,18 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
       ...(fresh ? { advisories_as_of: fresh.as_of, advisories_stale: fresh.stale } : {}),
     });
     const asOfNote = fresh ? `; advisory data as of ${fresh.as_of.slice(0, 10)}${fresh.stale ? ', STALE (cached copy; source unreachable)' : ''}` : '';
+    const problem = originsProblem(snapshot);
+    const originsNote =
+      problem === undefined
+        ? ''
+        : `; package origins could not be determined (${problem === 'failed' ? ORIGINS_UNAVAILABLE_MESSAGE : 'apt package lists are empty'}), so third-party packages were not excluded`;
     const kevNote = kev_available ? '' : '; CISA KEV was unavailable, so known-exploited CVEs were not escalated';
     const skippedNote = skipped > 0 ? `; ${skipped} non-distro packages not checked (see host-package-third-party)` : '';
     if (fixable.length === 0) {
       const unfixedNote = unfixed > 0 ? `; ${unfixed} advisories have no released fix yet` : '';
       return {
         outcome: 'pass',
-        observed: `${sources.length} distro source packages checked against ${distro.ecosystem} advisories; no security fixes pending${unfixedNote}${kevNote}${skippedNote}${asOfNote}`,
+        observed: `${sources.length} ${problem === undefined ? 'distro source' : 'source'} packages checked against ${distro.ecosystem} advisories; no security fixes pending${unfixedNote}${originsNote}${kevNote}${skippedNote}${asOfNote}`,
         evidence_id,
       };
     }
@@ -202,7 +208,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     return {
       outcome: 'fail',
       severity,
-      observed: `${fixable.length} package(s) have security fixes not installed: ${fixable.slice(0, p.max_listed).map(describeFixable).join('; ')}${more}${kevNote}${skippedNote}${asOfNote}`,
+      observed: `${fixable.length} package(s) have security fixes not installed: ${fixable.slice(0, p.max_listed).map(describeFixable).join('; ')}${more}${originsNote}${kevNote}${skippedNote}${asOfNote}`,
       evidence_id,
       details: { fixable },
     };

@@ -220,6 +220,48 @@ describe('host_package advisories and dpkg states', () => {
   });
 });
 
+describe('host_package when apt-cache policy failed', () => {
+  const env = fixtureEnvelope('ubuntu-24-04');
+  const failed = (rc = 100) => decodeSnapshot(withSection(env, 'apt_policy', 'E: Could not open file /var/lib/apt/lists/x', rc));
+
+  it('third_party is ORIGINS_UNAVAILABLE, not the "run apt-get update" advice', async () => {
+    const err = await run(failed(), { assert: 'third_party' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ObservationError);
+    expect(err).toMatchObject({ code: 'ORIGINS_UNAVAILABLE', message: 'apt-cache policy failed; origins cannot be determined' });
+    expect((err as Error).message).not.toContain('apt-get update');
+  });
+
+  it('a missing apt_policy section is the same', async () => {
+    const missing = { ...env, sections: Object.fromEntries(Object.entries(env.sections).filter(([k]) => k !== 'apt_policy')) };
+    await expect(run(decodeSnapshot(missing), { assert: 'third_party' })).rejects.toMatchObject({ code: 'ORIGINS_UNAVAILABLE' });
+  });
+
+  it('advisories still run but do not claim the packages are distro source packages', async () => {
+    const out = await run(failed(), { assert: 'advisories' });
+    expect(out.outcome).toBe('pass');
+    expect(out.observed).not.toContain('distro source packages');
+    expect(out.observed).toContain('apt-cache policy failed; origins cannot be determined');
+  });
+
+  it('advisories still fail a vulnerable package, and say origins could not be determined', async () => {
+    const old = withSourceVersion(env, 'openssh', '1:9.6p1-3ubuntu13');
+    const out = await run(decodeSnapshot(withSection(old, 'apt_policy', 'E: broken', 1)), { assert: 'advisories' });
+    expect(out.outcome).toBe('fail');
+    expect(out.observed).toContain('apt-cache policy failed; origins cannot be determined');
+  });
+
+  it('empty apt lists (policy succeeded) get the same honest wording', async () => {
+    const policy = sectionOf(env, 'apt_policy').replace(/^ {8}\d+ http\S*.*$/gm, '');
+    const out = await run(decodeSnapshot(withSection(env, 'apt_policy', policy)), { assert: 'advisories' });
+    expect(out.observed).not.toContain('distro source packages');
+    expect(out.observed).toContain('apt package lists are empty');
+  });
+
+  it('a normal host still says distro source packages', async () => {
+    expect((await run(fixtureSnapshot('ubuntu-24-04'), { assert: 'advisories' })).observed).toContain('distro source packages checked');
+  });
+});
+
 describe('host_package third_party and reboot', () => {
   const env = fixtureEnvelope('ubuntu-24-04');
 

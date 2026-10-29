@@ -1,5 +1,6 @@
 import { compareDebVersions } from '../util/debver.js';
 import type { PackageOrigin } from './parse.js';
+import type { HostSnapshot } from './snapshot.js';
 
 export type OriginKind = 'distro' | 'third_party' | 'local' | 'unknown';
 
@@ -67,4 +68,12 @@ export function classifyOrigin(origin: PackageOrigin | undefined, codename: stri
 /** True when no package lists any repository source for any version: apt lists were cleaned or never fetched, so origins can't be known. */
 export function aptListsEmpty(origins: Record<string, PackageOrigin>): boolean {
   return !Object.values(origins).some((o) => [...o.sources, ...o.available.flatMap((v) => v.sources)].some((s) => s !== LOCAL_STATUS));
+}
+
+export const ORIGINS_UNAVAILABLE_MESSAGE = 'apt-cache policy failed; origins cannot be determined';
+
+/** Why package origins can't be told on this snapshot, or undefined when they can. */
+export function originsProblem(snap: Pick<HostSnapshot, 'origins' | 'origins_unavailable'>): 'failed' | 'empty' | undefined {
+  if (snap.origins_unavailable) return 'failed';
+  return aptListsEmpty(snap.origins) ? 'empty' : undefined;
 }

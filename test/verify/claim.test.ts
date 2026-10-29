@@ -235,6 +235,18 @@ describe('verifyClaim v2 fail-closed', () => {
     expect(r.packages[0]?.note).toContain('apt package lists are empty');
   });
 
+  it('a failed apt-cache policy downgrades a safe verdict, naming the failure, and vulnerable stands', async () => {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    for (const cve of ['CVE-2024-6387', 'CVE-2021-41617']) {
+      const r = await verify(decodeSnapshot(withSection(env, 'apt_policy', 'E: broken', 100)), cve);
+      expect(r.verdict).toBe('unverifiable');
+      expect(r.packages[0]?.note).toContain('apt-cache policy failed; origins cannot be determined');
+      expect(r.packages[0]?.note).not.toContain('apt package lists are empty');
+    }
+    const old = withSection(withSourceVersion(env, 'openssh', '1:9.6p1-3ubuntu13'), 'apt_policy', 'E: broken', 100);
+    expect((await verify(decodeSnapshot(old), 'CVE-2024-6387')).verdict).toBe('vulnerable');
+  });
+
   it('a failed packages section is unverifiable with evidence, not not_affected', async () => {
     const env = fixtureEnvelope('ubuntu-24-04');
     const r = await verify(decodeSnapshot(withSection(env, 'packages', 'dpkg-query: error', 1)), 'CVE-2024-6387');

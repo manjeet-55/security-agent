@@ -41,6 +41,16 @@ describe('decodeSnapshot (real container outputs)', () => {
     expect(error.sshd).toEqual({ state: 'error', reason: 'sshd: no hostkeys available -- exiting.' });
   });
 
+  it('flags origins_unavailable when apt-cache policy failed or is missing, not when it succeeded', () => {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    expect(fixtureSnapshot('ubuntu-24-04').origins_unavailable).toBeUndefined();
+    expect(decodeSnapshot(withSection(env, 'apt_policy', 'E: Could not open file', 100)).origins_unavailable).toBe(true);
+    expect(decodeSnapshot(withSection(env, 'apt_policy', 'sh: apt-cache: not found', 127)).origins_unavailable).toBe(true);
+    const missing = { ...env, sections: Object.fromEntries(Object.entries(env.sections).filter(([k]) => k !== 'apt_policy')) };
+    expect(decodeSnapshot(missing).origins_unavailable).toBe(true);
+    expect(decodeSnapshot(withSection(env, 'apt_policy', '')).origins_unavailable).toBeUndefined();
+  });
+
   it('tolerates a missing dpkg (non-Debian host) but requires os-release', () => {
     const env = fixtureEnvelope('ubuntu-24-04');
     expect(decodeSnapshot(withSection(env, 'packages', 'sh: 1: dpkg-query: not found', 127)).packages).toEqual([]);

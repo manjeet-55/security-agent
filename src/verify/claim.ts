@@ -4,7 +4,7 @@ import { fixedVersionFor } from '../advisories/osv.js';
 import type { Advisories } from '../advisories/types.js';
 import type { EvidenceStore } from '../evidence/store.js';
 import { ObservationError } from '../checks/errors.js';
-import { aptListsEmpty, classifyOrigin } from '../host/origin.js';
+import { classifyOrigin, ORIGINS_UNAVAILABLE_MESSAGE, originsProblem } from '../host/origin.js';
 import { describeDpkgState, isSettled } from '../host/parse.js';
 import { requirePackages, type HostSnapshot } from '../host/snapshot.js';
 import { MAX_SNAPSHOT_AGE_DAYS, snapshotFreshness, type SnapshotReader } from '../host/store.js';
@@ -96,7 +96,9 @@ function notInstalledReason(names: string): string {
  * third-party repositories, local installs, repos that only look like a mirror, and packages apt-cache says nothing about.
  */
 function originConcern(snap: HostSnapshot, source: string, codename: string): string | undefined {
-  if (aptListsEmpty(snap.origins)) return 'apt package lists are empty, so the package origin is unknown';
+  const problem = originsProblem(snap);
+  if (problem === 'failed') return ORIGINS_UNAVAILABLE_MESSAGE;
+  if (problem === 'empty') return 'apt package lists are empty, so the package origin is unknown';
   for (const bin of snap.packages.filter((p) => p.source === source)) {
     const o = classifyOrigin(snap.origins[bin.name], codename);
     if (o.kind === 'distro') continue;

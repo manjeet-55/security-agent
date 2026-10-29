@@ -35,6 +35,8 @@ export interface HostSnapshot {
   packages_error?: string;
   /** Keyed by binary package name without arch. */
   origins: Record<string, PackageOrigin>;
+  /** True when the apt_policy section is missing or failed: `origins` is empty because it is unknown, not because nothing has an origin. */
+  origins_unavailable?: boolean;
   auto_upgrades: { enabled: boolean; installed: boolean };
   reboot: { required: boolean; packages: string[] };
   /** Set unless the reboot section ran with rc 0 and reported "required" or "not-required". */
@@ -92,6 +94,7 @@ export function decodeSnapshot(raw: unknown): HostSnapshot {
     const s = section(env, name);
     return s && s.rc === 0 ? s.text : '';
   };
+  const aptPolicy = section(env, 'apt_policy');
   const pkgSection = section(env, 'packages');
   const packages = parsePackages(text('packages'));
   const pkgError = packagesError(pkgSection, packages.length);
@@ -104,6 +107,7 @@ export function decodeSnapshot(raw: unknown): HostSnapshot {
     packages,
     ...(pkgError !== undefined ? { packages_error: pkgError } : {}),
     origins: parseAptPolicy(text('apt_policy')),
+    ...(aptPolicy === undefined || aptPolicy.rc !== 0 ? { origins_unavailable: true } : {}),
     auto_upgrades: parseAutoUpgrades(section(env, 'auto_upgrades')?.text ?? ''),
     reboot: parseReboot(text('reboot')),
     ...(rebootErr !== undefined ? { reboot_error: rebootErr } : {}),
