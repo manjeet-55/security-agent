@@ -101,6 +101,7 @@ export function evaluateHostConfig(snap: HostSnapshot, p: HostConfigParams): Hos
         return { outcome: 'pass', observed: 'nginx is not installed on this host', excerpt: snap.nginx };
       }
       if (snap.nginx.state === 'error') {
+        if (snap.nginx.code !== undefined) throw new ObservationError(snap.nginx.code, `The nginx configuration is unreadable: ${snap.nginx.reason}.`);
         if (!snap.is_root) throw new ObservationError('NOT_ROOT', `"nginx -T" failed (${snap.nginx.reason}); run the collector as root.`);
         throw new ObservationError('NGINX_UNREADABLE', `"nginx -T" failed (${snap.nginx.reason}); run the collector as root.`);
       }

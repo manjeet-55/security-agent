@@ -3,7 +3,11 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ObservationError } from '../../src/checks/errors.js';
+import { evaluateHostConfig, hostConfigParams } from '../../src/checks/types/host-config.js';
 import { COLLECTOR_PATH, makeCollector } from '../../src/host/collector.js';
+import { decodeSnapshot } from '../../src/host/snapshot.js';
+import { fixtureEnvelope, withSection } from '../helpers/snapshots.js';
 
 const SCRIPT = readFileSync(COLLECTOR_PATH, 'utf8');
 const linuxWithSh = process.platform === 'linux' && existsSync('/bin/sh');
@@ -61,6 +65,14 @@ describe.runIf(linuxWithSh)('collector.sh', () => {
   });
 
   const extractRedact = () => /redact\(\) \{[\s\S]*?\n\}/.exec(SCRIPT)?.[0] ?? '';
+
+  // The collector runs under whatever awk the host has: Debian and Ubuntu default to mawk, others to gawk or busybox.
+  const awks = ['mawk', 'gawk', 'busybox awk'].filter((a) => spawnSync('sh', ['-c', `command -v ${a.split(' ')[0]}`]).status === 0);
+  const redactWith = (input: string, awk: string): string => {
+    const run = spawnSync('sh', ['-c', `awk() { ${awk} "$@"; }\n${extractRedact()}\nredact`], { input, encoding: 'utf8' });
+    expect(run.status).toBe(0);
+    return run.stdout;
+  };
 
   it('redacts env values, secret-named directives, URL query credentials, continued headers and brace-on-next-line maps', () => {
     const input = [
@@ -164,9 +176,6 @@ describe.runIf(linuxWithSh)('collector.sh', () => {
       'map $uri $x {',
     ];
 
-    // The collector runs under whatever awk the host has: Debian and Ubuntu default to mawk, others to gawk or busybox.
-    const awks = ['mawk', 'gawk', 'busybox awk'].filter((a) => spawnSync('sh', ['-c', `command -v ${a.split(' ')[0]}`]).status === 0);
-
     it.each(awks)('redacts every planted secret and keeps what the checks need (%s)', (awk) => {
       const run = spawnSync('sh', ['-c', `awk() { ${awk} "$@"; }\n${extractRedact()}\nredact`], { input, encoding: 'utf8' });
       expect(run.status).toBe(0);
@@ -179,6 +188,107 @@ describe.runIf(linuxWithSh)('collector.sh', () => {
       expect(run.stdout).toContain('secure_link_md5 <redacted>;');
       expect(run.stdout).toContain('secure_link_secret <redacted>; # used by /dl');
       expect(run.stdout).toContain('location /p { secure_link_secret <redacted>; }');
+    });
+  });
+
+  const MARKER = '# secagent: redaction lost sync';
+  const sslProtocols = hostConfigParams.parse({
+    rule: 'nginx_directive',
+    directive: 'ssl_protocols',
+    forbid_tokens: ['SSLv2', 'SSLv3', 'TLSv1', 'TLSv1.1'],
+    when_absent: 'unverifiable',
+  });
+  const decodeNginx = (nginx: string) => decodeSnapshot(withSection(fixtureEnvelope('ubuntu-24-04'), 'nginx', nginx));
+
+  describe.each(awks)('quote-aware redaction that fails closed (%s)', (awk) => {
+    it('an apostrophe inside a one-line map does not swallow the config after it, so ssl_protocols TLSv1 still fails', () => {
+      const raw = [
+        '# configuration file /etc/nginx/nginx.conf:',
+        'http {',
+        '\tssl_protocols TLSv1.2 TLSv1.3;',
+        "\tmap $http_user_agent $is_bot { ~*o'reilly|bot LEAK_MAP_1; default 0; }",
+        '\tinclude /etc/nginx/sites-enabled/*;',
+        '# configuration file /etc/nginx/sites-enabled/legacy:',
+        '\tserver {',
+        '\t\tlisten 443 ssl;',
+        '\t\tssl_protocols TLSv1 TLSv1.1 TLSv1.2;',
+        '\t}',
+        '}',
+      ].join('\n');
+      const out = redactWith(raw, awk);
+      expect(out).not.toContain('LEAK_MAP_1');
+      expect(out).toContain('map $http_user_agent $is_bot { <redacted> }');
+      expect(out).toContain('ssl_protocols TLSv1 TLSv1.1 TLSv1.2;');
+      expect(out).not.toContain(MARKER);
+      expect(evaluateHostConfig(decodeNginx(out), sslProtocols)).toMatchObject({ outcome: 'fail' });
+    });
+
+    it('a map that closes mid-line keeps whatever follows its closing brace', () => {
+      const out = redactWith(['map $a $b { "LEAK_MAP_2" 1; } server { ssl_protocols TLSv1; }', 'map $c $d {', '  "LEAK_MAP_3" 1;', '} ssl_protocols TLSv1.1;'].join('\n'), awk);
+      expect(out).not.toMatch(/LEAK_MAP_[23]/);
+      expect(out).toContain('server { ssl_protocols TLSv1; }');
+      expect(out).toContain('ssl_protocols TLSv1.1;');
+    });
+
+    it('an escaped quote in a continued header value does not leave the header open', () => {
+      const out = redactWith(
+        ['\tproxy_set_header Authorization', '\t    "Basic LEAK_ESC_1\\"LEAK_ESC_2";', '\tssl_protocols TLSv1 TLSv1.2;', '\tserver_tokens on;'].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_ESC/);
+      expect(out).toContain('proxy_set_header Authorization\n');
+      expect(out).toContain('ssl_protocols TLSv1 TLSv1.2;');
+      expect(out).toContain('server_tokens on;');
+      expect(out).not.toContain(MARKER);
+    });
+
+    it('a quote only opens at the start of a token, and a header continuation ends after one statement', () => {
+      const out = redactWith(
+        [
+          "\tproxy_set_header Authorization 'LEAK_Q_1'; add_header X-Note it's-fine;",
+          '\tproxy_set_header Authorization',
+          "\t    don't-LEAK_Q_2;",
+          '\tssl_protocols TLSv1 TLSv1.2;',
+        ].join('\n'),
+        awk,
+      );
+      expect(out).not.toMatch(/LEAK_Q/);
+      expect(out).toContain("add_header X-Note it's-fine;");
+      expect(out).toContain('ssl_protocols TLSv1 TLSv1.2;');
+    });
+
+    it('a map body that does not parse emits the lost-sync marker instead of eating the config', () => {
+      const out = redactWith(
+        ['http {', '\tmap $a $b {', '\t    ~x 1;', '\tserver {', '\t\tlisten 443 ssl;', '\t\tssl_protocols TLSv1;', '\t}', '}'].join('\n'),
+        awk,
+      );
+      expect(out.split('\n').filter((l) => l === MARKER)).toHaveLength(1);
+      expect(out).toContain('ssl_protocols TLSv1;');
+      expect(out).not.toContain('~x 1');
+    });
+
+    it.each([
+      ['a line ending in an opening brace', ['map $a $b {', '  x 1;', '  location /x {', '}'].join('\n')],
+      ['a line starting with server', ['geo $g {', '  default 0;', '  server_name_is_not_this 1;', 'server', '}'].join('\n')],
+      ['a line starting with upstream', ['map $a $b {', '  upstream foo', '}'].join('\n')],
+      ['a body that never closes', ['http {', 'map $a $b {', '  x 1;'].join('\n')],
+    ])('lost sync is flagged for %s', (_name, raw) => {
+      const out = redactWith(raw, awk);
+      expect(out.split('\n')).toContain(MARKER);
+    });
+
+    it('does not flag lost sync for map entries that merely begin with server or http', () => {
+      const out = redactWith(['map $host $up {', '  server1.example.com a;', '  http-only b;', '  default c;', '}'].join('\n'), awk);
+      expect(out).not.toContain(MARKER);
+      expect(out).not.toMatch(/server1|http-only/);
+    });
+
+    it('decodes a section carrying the marker as unreadable, so the nginx check is unverifiable and never passes', () => {
+      const out = redactWith(['http {', '\tssl_protocols TLSv1.2;', '\tmap $a $b {', '\t    ~x 1;', '\tserver {', '\t\tssl_protocols TLSv1;', '\t}', '}'].join('\n'), awk);
+      const snap = decodeNginx(out);
+      expect(snap.nginx).toMatchObject({ state: 'error', code: 'REDACTION_LOST_SYNC' });
+      expect(() => evaluateHostConfig(snap, sslProtocols)).toThrow(expect.objectContaining({ name: 'ObservationError', code: 'REDACTION_LOST_SYNC' }));
+      expect(() => evaluateHostConfig(snap, sslProtocols)).toThrow(ObservationError);
     });
   });
 

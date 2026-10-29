@@ -22,7 +22,14 @@ export const SnapshotEnvelopeSchema = z.object({
 });
 export type SnapshotEnvelope = z.infer<typeof SnapshotEnvelopeSchema>;
 
-export type SectionState<T> = { state: 'ok'; value: T } | { state: 'absent'; reason: string } | { state: 'error'; reason: string };
+/** The line the collector writes when its secret redaction could no longer tell where a map, geo or Lua body ends. */
+export const REDACTION_LOST_SYNC_MARKER = '# secagent: redaction lost sync';
+
+/** `code` is set when the section was readable but must not be trusted (e.g. REDACTION_LOST_SYNC); consumers raise it as the ObservationError code. */
+export type SectionState<T> =
+  | { state: 'ok'; value: T }
+  | { state: 'absent'; reason: string }
+  | { state: 'error'; reason: string; code?: string };
 
 export interface HostSnapshot {
   collected_at: string;
@@ -58,6 +65,21 @@ function stateOf<T>(s: { rc: number; text: string } | undefined, parse: (text: s
   if (s.rc === 0) return { state: 'ok', value: parse(s.text) };
   const reason = (s.text.split('\n').find((l) => l.trim() !== '') ?? `exit code ${s.rc}`).trim();
   return s.rc === 127 ? { state: 'absent', reason } : { state: 'error', reason };
+}
+
+/**
+ * The nginx section. Redaction that lost sync may have dropped or kept the wrong lines, so the text cannot be trusted whatever
+ * the exit code: it is unreadable and no nginx check may pass on it.
+ */
+function nginxState(s: { rc: number; text: string } | undefined): SectionState<string> {
+  if (s?.text.includes(REDACTION_LOST_SYNC_MARKER)) {
+    return {
+      state: 'error',
+      code: 'REDACTION_LOST_SYNC',
+      reason: 'the collector lost track of a map, geo or Lua block while redacting secrets, so the redacted nginx configuration is unreliable',
+    };
+  }
+  return stateOf(s, (t) => t);
 }
 
 /** The installed packages, or ObservationError('NO_PACKAGES') when the packages section is missing, failed or empty. */
@@ -112,7 +134,7 @@ export function decodeSnapshot(raw: unknown): HostSnapshot {
     reboot: parseReboot(text('reboot')),
     ...(rebootErr !== undefined ? { reboot_error: rebootErr } : {}),
     sshd: stateOf(section(env, 'sshd'), parseSshdT),
-    nginx: stateOf(section(env, 'nginx'), (t) => t),
+    nginx: nginxState(section(env, 'nginx')),
     listening: stateOf(section(env, 'listening'), parseListening),
   };
 }

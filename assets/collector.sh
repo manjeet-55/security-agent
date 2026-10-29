@@ -8,38 +8,68 @@ export LC_ALL=C
 
 redact() {
   awk '
-    BEGIN { sq = "\047" }
+    BEGIN { sq = "\047"; MARK = "# secagent: redaction lost sync" }
+    # A quote opens a quoted string only at the start of a token (line start, or after whitespace, ";", "{" or "}"), as in nginx,
+    # so the apostrophe in o-apostrophe-reilly is literal. Inside quotes a backslash escapes the next character.
+    function tokstart(s, i,    p) {
+      if (i <= 1) return 1
+      p = substr(s, i - 1, 1)
+      return (p == " " || p == "\t" || p == ";" || p == "{" || p == "}")
+    }
     # Index of the first ";" outside quotes at or after i, or 0.
     function stmt_end(s, i,    n, c, q) {
       n = length(s); q = ""
       for (; i <= n; i++) {
         c = substr(s, i, 1)
-        if (q != "") { if (c == q) q = ""; continue }
-        if (c == "\"" || c == sq) q = c
+        if (q != "") { if (c == "\\") i++; else if (c == q) q = ""; continue }
+        if ((c == "\"" || c == sq) && tokstart(s, i)) q = c
+        else if (c == "\\") i++
         else if (c == ";") return i
       }
       return 0
     }
-    # Opening minus closing braces outside quotes and comments, so a regex quantifier like {2} does not end a block.
-    function net_braces(s,    n, i, c, q, d) {
-      n = length(s); q = ""; d = 0
+    # Walks s from index i at brace depth d, counting braces outside quotes and comments so a regex quantifier like {2} nets to
+    # zero. Returns the index of the "}" that brings the depth to zero, else 0; sdepth is the depth at the end of s.
+    function scan(s, i, d,    n, c, q) {
+      n = length(s); q = ""
+      for (; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (q != "") { if (c == "\\") i++; else if (c == q) q = ""; continue }
+        if ((c == "\"" || c == sq) && tokstart(s, i)) q = c
+        else if (c == "\\") i++
+        else if (c == "#" && tokstart(s, i)) break
+        else if (c == "{") d++
+        else if (c == "}") { d--; if (d <= 0) { sdepth = 0; return i } }
+      }
+      sdepth = d
+      return 0
+    }
+    # Index of the first "{" outside quotes in s; 0 if there is none yet, -1 if a ";" ends the statement first.
+    function find_brace(s,    n, i, c, q) {
+      n = length(s); q = ""
       for (i = 1; i <= n; i++) {
         c = substr(s, i, 1)
-        if (q != "") { if (c == q) q = ""; continue }
-        if (c == "\"" || c == sq) q = c
-        else if (c == "#") break
-        else if (c == "{") d++
-        else if (c == "}") d--
+        if (q != "") { if (c == "\\") i++; else if (c == q) q = ""; continue }
+        if ((c == "\"" || c == sq) && tokstart(s, i)) q = c
+        else if (c == "\\") i++
+        else if (c == "#" && tokstart(s, i)) return 0
+        else if (c == ";") return -1
+        else if (c == "{") return i
       }
-      return d
+      return 0
+    }
+    # A body that is being dropped but looks like surrounding configuration: redaction lost track of where it ends.
+    function lost(s) {
+      return (s ~ /\{[ \t]*$/ || s ~ /^[ \t]*(server|location|http|upstream)([ \t{]|$)/)
     }
     function secret_name(n) {
       if (n == "secure_link_md5") return 1
       return (n ~ /(secret|passw|token|api_?key|auth_[a-z0-9_]*key)/ && n !~ /_file$/ && n != "server_tokens")
     }
     # Redacts the value of every secret-named directive on the line: at line start, after ";", "{" or "}", and in comments.
-    function scrub(line,    out, rest, first, m, name, e) {
-      out = ""; rest = line; first = 1
+    # cont is set when line is the rest of a statement, so it is scanned for statements from its first character.
+    function scrub(line, cont,    out, rest, first, ok, m, name, e) {
+      out = ""; rest = line; first = !cont
       while (1) {
         if (first) ok = match(rest, /^[ \t]*#*[ \t]*[A-Za-z0-9_]+[ \t]+/)
         else ok = match(rest, /[;{}#][ \t]*[A-Za-z0-9_]+[ \t]+/)
@@ -63,22 +93,53 @@ redact() {
       }
       return out rest
     }
-    function openblk(    d) {
-      d = net_braces($0)
-      if (d <= 0) { sub(/\{.*\}/, "{ <redacted> }"); print }
-      else { sub(/\{.*/, "{ # map/geo values redacted"); print; depth = d }
+    # Redacts the body of a map or geo whose "{" is at index b of s: returns s up to the brace plus a marker, and sets blk_rest to
+    # the text from the closing "}" on. While the body goes on over later lines blk_rest is empty and depth is set.
+    function open_block(s, b,    c) {
+      c = scan(s, b, 0)
+      if (c) { blk_rest = substr(s, c); return substr(s, 1, b) " <redacted> " }
+      depth = sdepth; blk_rest = ""
+      return substr(s, 1, b) " # map/geo values redacted"
     }
-    depth > 0 { depth += net_braces($0); if (depth <= 0) { depth = 0; print "    } # map/geo values redacted" }; next }
-    hdr {
-      if ($0 !~ /[^ \t]/ || $0 ~ /^[ \t]*#/) { print; next }
-      match($0, /^[ \t]*/); lead = substr($0, 1, RLENGTH); e = stmt_end($0, 1)
-      if (e) hdr = 0
-      print lead "<redacted>" (e ? substr($0, e) : ""); next
+    function proc(line,    c, b, v, lead, e, rest) {
+      if (depth > 0) {
+        if (lost(line)) { print MARK; depth = 0 }
+        else {
+          c = scan(line, 1, depth)
+          if (!c) { depth = sdepth; return }
+          depth = 0
+          print "    } # map/geo values redacted"
+          rest = substr(line, c + 1)
+          if (rest ~ /[^ \t]/) proc(rest)
+          return
+        }
+      }
+      if (hdr) {
+        # The value of a header or secret directive that is alone on its line: redact it, up to its ";" and no further.
+        if (line !~ /[^ \t]/ || line ~ /^[ \t]*#/) { print; return }
+        if (lost(line)) { print MARK; hdr = 0 }
+        else {
+          match(line, /^[ \t]*/); lead = substr(line, 1, RLENGTH); e = stmt_end(line, 1)
+          if (e) hdr = 0
+          print lead "<redacted>" (e ? scrub(substr(line, e), 1) : ""); return
+        }
+      }
+      if (pend) {
+        b = find_brace(line)
+        if (b > 0) { pend = 0; v = open_block(line, b); print v scrub(blk_rest, 1); return }
+        if (b < 0) pend = 0
+      }
+      if (line ~ /^[ \t]*(map|geo)[ \t]/) {
+        b = find_brace(line)
+        if (b > 0) { v = open_block(line, b); print v scrub(blk_rest, 1); return }
+        if (b == 0) pend = 1
+        print line; return
+      }
+      if (tolower(line) ~ /^[ \t]*(proxy_set_header|add_header|more_set_headers|grpc_set_header|fastcgi_param|uwsgi_param|scgi_param)[ \t]+"?[a-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[a-z0-9_-]*"?[ \t]*$/) { hdr = 1; print line; return }
+      print scrub(line, 0)
     }
-    pend { if ($0 ~ /\{/) { pend = 0; openblk(); next } if ($0 ~ /;/) pend = 0 }
-    /^[ \t]*(map|geo)[ \t]/ { if ($0 ~ /\{/) { openblk(); next } pend = 1; print; next }
-    tolower($0) ~ /^[ \t]*(proxy_set_header|add_header|more_set_headers|grpc_set_header|fastcgi_param|uwsgi_param|scgi_param)[ \t]+"?[a-z0-9_-]*(authorization|cookie|token|secret|passw|api[_-]?key|key|auth|credential|session|signature)[a-z0-9_-]*"?[ \t]*$/ { hdr = 1; print; next }
-    { print scrub($0) }
+    { proc($0) }
+    END { if (depth > 0) print MARK }
   ' | sed -E \
     -e 's/^([[:space:]]*env[[:space:]]+[A-Za-z0-9_]+=)[^;]+/\1<redacted>/' \
     -e 's/([?&][A-Za-z0-9_.-]*(key|token|secret|sig|passw|auth)[A-Za-z0-9_.-]*=)[^&[:space:]"'"'"';]+/\1<redacted>/Ig' \

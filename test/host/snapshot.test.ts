@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ObservationError } from '../../src/checks/errors.js';
-import { decodeSnapshot } from '../../src/host/snapshot.js';
+import { evaluateHostConfig, hostConfigParams } from '../../src/checks/types/host-config.js';
+import { decodeSnapshot, REDACTION_LOST_SYNC_MARKER } from '../../src/host/snapshot.js';
 import { fixtureEnvelope, fixtureSnapshot, withSection } from '../helpers/snapshots.js';
 
 describe('decodeSnapshot (real container outputs)', () => {
@@ -56,5 +57,29 @@ describe('decodeSnapshot (real container outputs)', () => {
     expect(decodeSnapshot(withSection(env, 'packages', 'sh: 1: dpkg-query: not found', 127)).packages).toEqual([]);
     expect(() => decodeSnapshot(withSection(env, 'os_release', '', 1))).toThrow(ObservationError);
     expect(() => decodeSnapshot({ schema: 2 })).toThrow(/Not a secagent collector snapshot/);
+  });
+
+  describe('an nginx section the collector flagged as lost sync', () => {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    const flagged = `http {\n\tssl_protocols TLSv1.2 TLSv1.3;\n${REDACTION_LOST_SYNC_MARKER}\n}\n`;
+    const rule = hostConfigParams.parse({ rule: 'nginx_directive', directive: 'ssl_protocols', forbid_tokens: ['TLSv1'], when_absent: 'unverifiable' });
+
+    it('is unreadable with the REDACTION_LOST_SYNC code, whatever the exit code', () => {
+      for (const rc of [0, 1]) {
+        expect(decodeSnapshot(withSection(env, 'nginx', flagged, rc)).nginx).toMatchObject({ state: 'error', code: 'REDACTION_LOST_SYNC' });
+      }
+    });
+
+    it('makes the nginx check unverifiable instead of letting it pass on the surviving lines', () => {
+      const snap = decodeSnapshot(withSection(env, 'nginx', flagged));
+      expect(() => evaluateHostConfig(snap, rule)).toThrow(expect.objectContaining({ name: 'ObservationError', code: 'REDACTION_LOST_SYNC' }));
+    });
+
+    it('leaves clean nginx sections and the other sections alone', () => {
+      expect(decodeSnapshot(withSection(env, 'nginx', 'http {\n\tssl_protocols TLSv1.2;\n}\n')).nginx.state).toBe('ok');
+      const sshd = decodeSnapshot(withSection(env, 'sshd', `passwordauthentication no\n${REDACTION_LOST_SYNC_MARKER}\n`)).sshd;
+      expect(sshd.state).toBe('ok');
+      expect(fixtureSnapshot('ubuntu-24-04').nginx).not.toHaveProperty('code');
+    });
   });
 });
