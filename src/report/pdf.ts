@@ -139,18 +139,40 @@ function fields(doc: Doc, b: Extract<Block, { kind: 'fields' }>): void {
   );
 }
 
-/** Column widths in proportion to each column's longest text, within limits, filling the page width. */
-function columnWidths(doc: Doc, head: readonly string[], rows: readonly string[][]): number[] {
-  const weights = head.map((h, c) => Math.min(60, Math.max(8, h.length, ...rows.map((r) => (r[c] ?? '').length))));
-  const total = weights.reduce((a, b) => a + b, 0);
-  return weights.map((w) => (w / total) * contentWidth(doc));
-}
+export const CELL_PAD = 4;
+/** The most room a single unbreakable word may claim, and the most a column asks for to show its longest cell on one line. */
+const MAX_WORD = 110;
+const MAX_FULL = 300;
 
-const PAD = 4;
+/** Width in points of a string in the table font; the header is set in bold. */
+export type Measure = (text: string, bold: boolean) => number;
+
+/**
+ * Column widths that fill `total`: every column gets room for its longest word (so a header or a date never breaks mid-word),
+ * then the room it would need to show its longest cell on one line, with what is left shared in proportion. When even the
+ * minimums do not fit, the columns share the width in proportion to how much text they hold.
+ */
+export function columnWidths(measure: Measure, head: readonly string[], rows: readonly string[][], total: number): number[] {
+  const cellsOf = (c: number) => [{ text: head[c] ?? '', bold: true }, ...rows.map((r) => ({ text: r[c] ?? '', bold: false }))];
+  const min = head.map((_h, c) => Math.min(MAX_WORD, Math.max(0, ...cellsOf(c).flatMap((x) => x.text.split(/\s+/).map((w) => measure(w, x.bold))))) + 2 * CELL_PAD);
+  const full = head.map((_h, c) => Math.max(min[c] ?? 0, Math.min(MAX_FULL, Math.max(0, ...cellsOf(c).map((x) => measure(x.text, x.bold)))) + 2 * CELL_PAD));
+  const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
+  if (sum(min) >= total) {
+    const share = head.map((_h, c) => Math.max(1, ...cellsOf(c).map((x) => x.text.length)));
+    return share.map((w) => (w / sum(share)) * total);
+  }
+  const spare = total - sum(min);
+  const want = full.map((f, c) => f - (min[c] ?? 0));
+  if (sum(want) <= spare) {
+    const leftover = total - sum(full);
+    return full.map((f) => f + (leftover * f) / sum(full));
+  }
+  return min.map((m, c) => m + (spare * (want[c] ?? 0)) / sum(want));
+}
 
 function rowHeight(doc: Doc, cells: readonly string[], widths: readonly number[], header: boolean): number {
   doc.font(header ? 'Helvetica-Bold' : 'Helvetica').fontSize(SMALL);
-  return Math.max(...cells.map((c, i) => doc.heightOfString(safe(c), { width: (widths[i] ?? 0) - PAD * 2 }))) + PAD * 2;
+  return Math.max(...cells.map((c, i) => doc.heightOfString(safe(c), { width: (widths[i] ?? 0) - CELL_PAD * 2 }))) + CELL_PAD * 2;
 }
 
 function tableRow(doc: Doc, cells: readonly string[], widths: readonly number[], header: boolean): void {
@@ -160,7 +182,7 @@ function tableRow(doc: Doc, cells: readonly string[], widths: readonly number[],
   if (header) doc.rect(MARGIN, y, width, height).fill(HEAD_BG);
   let x = MARGIN;
   cells.forEach((c, i) => {
-    doc.fillColor(INK).text(safe(c), x + PAD, y + PAD, { width: (widths[i] ?? 0) - PAD * 2 });
+    doc.fillColor(INK).text(safe(c), x + CELL_PAD, y + CELL_PAD, { width: (widths[i] ?? 0) - CELL_PAD * 2 });
     x += widths[i] ?? 0;
   });
   doc.moveTo(MARGIN, y + height).lineTo(MARGIN + width, y + height).lineWidth(0.5).strokeColor(RULE).stroke();
@@ -169,7 +191,12 @@ function tableRow(doc: Doc, cells: readonly string[], widths: readonly number[],
 }
 
 function table(doc: Doc, b: Extract<Block, { kind: 'table' }>): void {
-  const widths = columnWidths(doc, b.head, b.rows);
+  const widths = columnWidths(
+    (text, bold) => doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(SMALL).widthOfString(safe(text)),
+    b.head,
+    b.rows,
+    contentWidth(doc),
+  );
   ensureSpace(doc, rowHeight(doc, b.head, widths, true) + (b.rows[0] ? rowHeight(doc, b.rows[0], widths, false) : 0));
   tableRow(doc, b.head, widths, true);
   for (const row of b.rows) {

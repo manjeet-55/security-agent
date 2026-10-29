@@ -6,6 +6,7 @@ import type { NetClient } from '../../net/scoped.js';
 import { isHandshakeRejection, LEGACY_CIPHERS, NON_AEAD_TLS12_CIPHERS, type TlsObservation } from '../../net/tls.js';
 import type { CheckType } from '../check-type.js';
 import { memoize } from '../context.js';
+import { ObservationError } from '../errors.js';
 
 export const tlsParams = z.object({
   assert: z.enum(['no_legacy', 'modern', 'cert']),
@@ -82,6 +83,13 @@ export const tlsCheck: CheckType<TlsParams> = {
     if (subject.kind !== 'target') throw new Error('tls runs on targets only');
     const url = new URL(subject.target.url);
     const host = stripBrackets(url.hostname);
+    if (p.port === undefined && url.protocol === 'http:' && url.port !== '') {
+      // The address names a plain-HTTP port; a TLS handshake there only produces a protocol error nobody can act on.
+      throw new ObservationError(
+        'NOT_HTTPS',
+        `This target is an http:// address on port ${url.port}, so there is no TLS on it to check. Add its https:// address as a target to check the certificate and protocols.`,
+      );
+    }
     const port = p.port ?? (url.port ? Number(url.port) : 443);
     const id = subject.target.id;
 

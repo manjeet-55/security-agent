@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckContext } from '../../../src/checks/context.js';
+import { ObservationError } from '../../../src/checks/errors.js';
 import { evaluateCert, evaluateLegacy, evaluateModern, tlsCheck, tlsParams } from '../../../src/checks/types/tls.js';
 import { EvidenceStore } from '../../../src/evidence/store.js';
 import { ScopedNet } from '../../../src/net/scoped.js';
@@ -94,6 +95,24 @@ describe('tls check against real servers', () => {
   }
   const run = (ctx: CheckContext, subject: Awaited<ReturnType<typeof setup>>['subject'], assert: string) =>
     tlsCheck.run(ctx, subject, tlsParams.parse({ assert }), {} as never);
+
+  it('an http:// address on its own port has no TLS to check: unverifiable with a plain explanation, and no handshake is tried', async () => {
+    const project = validateProject({ version: 1, name: 't', targets: [{ id: 'app', url: 'http://127.0.0.1:8080', type: 'web', env: 'test' }] });
+    const ctx: CheckContext = {
+      project,
+      net: { http: async () => { throw new Error('no http'); }, tls: async () => { throw new Error('a TLS handshake was tried'); }, tcp: async () => 'closed' },
+      evidence: new EvidenceStore(await tempDir(), 'test'),
+      now: () => new Date(),
+      snapshots: NO_SNAPSHOTS,
+      advisories: NO_ADVISORIES,
+      memo: new Map(),
+    };
+    const target = project.targets[0]!;
+    for (const assert of ['no_legacy', 'modern', 'cert']) {
+      await expect(run(ctx, { kind: 'target', target }, assert)).rejects.toThrow(/http:\/\/ address on port 8080, so there is no TLS/);
+      await expect(run(ctx, { kind: 'target', target }, assert)).rejects.toBeInstanceOf(ObservationError);
+    }
+  });
 
   it('fails no_legacy on a server accepting TLS 1.0', async () => {
     const { ctx, subject } = await setup({ minVersion: 'TLSv1', ciphers: LEGACY_CIPHERS });
