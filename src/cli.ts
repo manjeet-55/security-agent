@@ -113,7 +113,7 @@ async function runInit(args: string[]): Promise<number> {
   return 0;
 }
 
-async function runScan(args: string[]): Promise<number> {
+async function runScan(args: string[], deps: CliDeps): Promise<number> {
   const { values } = parseArgs({
     args,
     strict: true,
@@ -124,7 +124,7 @@ async function runScan(args: string[]): Promise<number> {
       'AI-triaged scans run inside your AI client through the secagent MCP server. For a deterministic scan without AI, run: secagent scan --no-ai',
     );
   }
-  const record = await scanNoAi(path.resolve(values.dir));
+  const record = await scanNoAi(path.resolve(values.dir), { ...(deps.now ? { now: deps.now } : {}), ...(deps.advisories ? { advisories: deps.advisories } : {}) });
   for (const line of formatScan(record)) console.log(line);
   return 0;
 }
@@ -132,6 +132,13 @@ async function runScan(args: string[]): Promise<number> {
 export interface CliDeps {
   /** Injected advisory sources (tests); defaults to live clients with the user cache. */
   advisories?: Advisories;
+  /** Injected clock (tests), used for snapshot age, evidence timestamps and advisory cache expiry; defaults to the wall clock. */
+  now?: () => Date;
+}
+
+/** `{ now }` when a clock was injected, else nothing (so the callee's default wall clock applies). */
+function clockOf(deps: CliDeps): { now?: () => Date } {
+  return deps.now ? { now: deps.now } : {};
 }
 
 export function formatClaim(r: ClaimResult): string[] {
@@ -166,7 +173,7 @@ async function runCollector(args: string[]): Promise<number> {
   return 0;
 }
 
-async function runSnapshot(args: string[]): Promise<number> {
+async function runSnapshot(args: string[], deps: CliDeps): Promise<number> {
   const [sub, ...rest] = args;
   const usage = 'Usage: secagent snapshot add --host <name> [--dir <path>] <file>';
   if (sub !== 'add') throw new UsageError(usage);
@@ -180,7 +187,7 @@ async function runSnapshot(args: string[]): Promise<number> {
   if (!values.host || !file) throw new UsageError(usage);
   const dir = path.resolve(values.dir);
   new Scope(await loadProject(dir)).host(values.host);
-  const { snapshot, file: stored } = await new SnapshotStore(dir).add(values.host, await readFile(path.resolve(file), 'utf8'));
+  const { snapshot, file: stored } = await new SnapshotStore(dir, deps.now).add(values.host, await readFile(path.resolve(file), 'utf8'));
   const rootNote = snapshot.is_root ? '' : ' (not run as root: sshd/nginx sections may be unreadable)';
   console.log(`Stored ${stored}: ${snapshot.os.pretty_name || snapshot.os.id}, ${snapshot.packages.length} packages, collected ${snapshot.collected_at}${rootNote}`);
   return 0;
@@ -206,9 +213,10 @@ async function runVerify(args: string[], deps: CliDeps): Promise<number> {
   const result = await verifyClaim(
     {
       host,
-      snapshots: new SnapshotStore(dir),
-      advisories: deps.advisories ?? createAdvisories(),
-      evidence: new EvidenceStore(dir, project.network.scan_label),
+      snapshots: new SnapshotStore(dir, deps.now),
+      advisories: deps.advisories ?? createAdvisories(clockOf(deps)),
+      evidence: new EvidenceStore(dir, project.network.scan_label, deps.now),
+      ...clockOf(deps),
     },
     { cve: values.cve, ...(values.package ? { package: values.package } : {}) },
   );
@@ -221,8 +229,8 @@ async function runLearn(args: string[], deps: CliDeps): Promise<number> {
   const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
   const dir = path.resolve(values.dir);
   const project = await loadProject(dir);
-  const advisories = deps.advisories ?? createAdvisories();
-  const store = new SnapshotStore(dir);
+  const advisories = deps.advisories ?? createAdvisories(clockOf(deps));
+  const store = new SnapshotStore(dir, deps.now);
   console.log(`CISA KEV: ${(await advisories.kev.catalog()).size} known-exploited CVEs cached`);
   for (const host of project.hosts) {
     const stored = await store.latest(host.name);
@@ -251,11 +259,11 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
       case 'init':
         return await runInit(rest);
       case 'scan':
-        return await runScan(rest);
+        return await runScan(rest, deps);
       case 'collector':
         return await runCollector(rest);
       case 'snapshot':
-        return await runSnapshot(rest);
+        return await runSnapshot(rest, deps);
       case 'verify':
         return await runVerify(rest, deps);
       case 'learn':
