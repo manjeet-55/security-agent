@@ -172,6 +172,16 @@ describe('reapplyExceptions (findings carried over by a partial scan)', () => {
     expect(f?.reasoning).not.toContain('Accepted risk by');
   });
 
+  it('is idempotent: carrying a finding over again and again never stacks the acceptance or expiry note', () => {
+    const later = new Date('2027-01-05T10:00:00.000Z');
+    let expired = reapplyExceptions([accepted!], [ACTIVE], later);
+    for (let i = 0; i < 5; i += 1) expired = reapplyExceptions(expired, [ACTIVE], later);
+    expect(expired[0]?.reasoning.match(/has expired/g)).toHaveLength(1);
+    let held = [accepted!];
+    for (let i = 0; i < 5; i += 1) held = reapplyExceptions(held, [ACTIVE], NOW);
+    expect(held[0]).toEqual(accepted);
+  });
+
   it('accepts an open finding that an exception now covers, and leaves every other status alone', () => {
     expect(reapplyExceptions([open!], [ACTIVE], NOW)[0]).toMatchObject({ status: 'accepted_risk', exception: { owner: 'dev-lead' } });
     const others = ['fixed', 'unverifiable', 'false_positive'].map((status) => ({ ...open!, status: status as 'fixed' }));

@@ -26,11 +26,12 @@ function withException(f: Finding, exceptions: readonly RiskException[], now: Da
  */
 export function reapplyExceptions(findings: readonly Finding[], exceptions: readonly RiskException[], now: Date): Finding[] {
   return findings.map((f) => {
-    if (f.status !== 'accepted_risk') return withException(f, exceptions, now);
-    const prefix = f.exception ? acceptedNote(f.exception) : '';
-    const { exception: _accepted, ...rest } = f;
-    const reopened: Finding = { ...rest, status: 'open', reasoning: prefix && f.reasoning.startsWith(prefix) ? f.reasoning.slice(prefix.length) : f.reasoning };
-    return withException(reopened, exceptions, now);
+    if (f.status !== 'accepted_risk' && f.status !== 'open') return f;
+    // Take off the note an earlier pass added (accepted or expired), so the note is rebuilt each time and never piles up.
+    const { exception, ...rest } = f;
+    const note = exception ? (exception.expired ? expiredNote(exception) : acceptedNote(exception)) : '';
+    const reasoning = note && f.reasoning.startsWith(note) ? f.reasoning.slice(note.length) : f.reasoning;
+    return withException({ ...rest, status: 'open', reasoning }, exceptions, now);
   });
 }
 
