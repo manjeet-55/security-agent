@@ -58,6 +58,7 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 
 ## What the assistant can and cannot do
 
+- It probes websites and servers only after a person on this machine confirmed them, by running `secagent` (or `secagent scan --no-ai`) in the project once. The confirmation is stored in `~/.config/secagent/consent.json`, outside the repository, so a cloned repo cannot confirm its own `project.yaml`. Cloud-metadata (link-local) addresses are never probed.
 - It cannot change which websites or servers are probed. No tool edits `.secagent/project.yaml`; only you can.
 - Every probe still goes through the scope guard, and websites on private addresses need `allow_private` in `project.yaml`.
 - It never receives secret values. Findings carry file, line, pattern and a fingerprint; evidence leaves out page bodies. Tell it to have the credentials rotated, not to read them.
