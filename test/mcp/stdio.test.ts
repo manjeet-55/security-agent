@@ -24,7 +24,7 @@ describe('secagent mcp over stdio', () => {
     const client = new Client({ name: 'secagent-e2e', version: '0.0.0' });
     await client.connect(transport);
     try {
-      expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(['fetch_source', 'get_evidence', 'get_findings', 'get_playbook', 'get_report', 'kb_read', 'kb_search', 'kb_write', 'project_info', 'report_summary', 'run_scan', 'triage_finding', 'verify_claim']);
+      expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(['fetch_source', 'get_evidence', 'get_findings', 'get_playbook', 'get_report', 'kb_read', 'kb_search', 'kb_write', 'make_collector', 'probe_http', 'project_info', 'report_summary', 'run_scan', 'triage_finding', 'verify_claim']);
       const info = await client.callTool({ name: 'project_info', arguments: {} });
       expect(JSON.parse((info.content as Array<{ text: string }>)[0]!.text).name).toBe('shop');
       const scan = await client.callTool({ name: 'run_scan', arguments: { groups: ['code'] } });

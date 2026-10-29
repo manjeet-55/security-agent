@@ -45,6 +45,8 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 | `fetch_source` | Fetches a page from an allowlisted reference site (`knowledge/sources.yaml`, https only), to cite in a lesson; the text is returned as untrusted |
 | `kb_write` | Proposes a project lesson that quotes a fetched page exactly; saved as pending until a person runs `secagent kb review --approve` |
 | `triage_finding` | Marks an open finding false positive or not applicable, only when citing an approved lesson or `verify_claim` evidence; holds 90 days, shown in the report |
+| `probe_http` | One GET or HEAD to a URL on a listed website (to check a fix quickly); status and headers, never the body |
+| `make_collector` | Writes the read-only collector for a listed server and says how to run it; adding its output stays a person's step |
 | `kb_read` | One lesson or check by id; `INDEX` is the one-line-per-entry overview, `notes` the project's notes, `exceptions` its accepted risks |
 
 ## What the assistant can and cannot do

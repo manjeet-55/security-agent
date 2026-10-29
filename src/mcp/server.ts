@@ -4,6 +4,7 @@ import { packageVersion } from '../paths.js';
 import { ServerState, type ServerOptions } from './state.js';
 import { registerAgentTools } from './tools/agent.js';
 import { registerKbTools } from './tools/kb.js';
+import { registerProbeTools } from './tools/probe.js';
 import { registerProjectTools } from './tools/project.js';
 import { registerReadTools } from './tools/read.js';
 import { registerScanTools } from './tools/scan.js';
@@ -34,6 +35,7 @@ export function createMcpServer(opts: ServerOptions): { server: McpServer; state
   registerVerifyTools(server, state);
   registerKbTools(server, state);
   registerAgentTools(server, state);
+  registerProbeTools(server, state);
   return { server, state };
 }
 

@@ -12,6 +12,7 @@ import { fixtureRecord } from '../report/fixture.js';
 import { vi } from 'vitest';
 
 const NOW = new Date('2026-10-28T12:00:00.000Z');
+import { fakeObs } from '../helpers/ctx.js';
 
 describe('secagent MCP server', () => {
   it('tells the client how to use it: scan first, trust only the scan, unverifiable is unknown, no fix claims without a new scan, no secrets', async () => {
@@ -123,3 +124,32 @@ describe('secagent mcp command', () => {
     log.mockRestore();
   });
 });
+
+describe('probe_http and make_collector', () => {
+  it('probe_http answers for a listed website, without the body, and refuses anything else', async () => {
+    const dir = await makeProject();
+    const net = {
+      http: async (url: string) => {
+        if (!url.startsWith('https://app.example.com')) throw new Error('out of scope');
+        return fakeObs({ url, headers: { 'strict-transport-security': 'max-age=63072000' }, bodySnippet: 'SECRETBODY' });
+      },
+      tls: async () => { throw new Error('no'); },
+      tcp: async () => 'closed' as const,
+    };
+    const mcp = await connectMcp({ projectDir: dir, now: () => NOW, net });
+    const r = await mcp.call('probe_http', { url: 'https://app.example.com/login' });
+    expect(r.json).toMatchObject({ status: 200, headers: { 'strict-transport-security': 'max-age=63072000' } });
+    expect(r.text).not.toContain('SECRETBODY');
+    expect((await mcp.call('probe_http', { url: 'https://other.example.org/' })).isError).toBe(true);
+  });
+
+  it('make_collector writes the script for a listed host only', async () => {
+    const dir = await makeProject();
+    const mcp = await connectMcp({ projectDir: dir, now: () => NOW });
+    const r = await mcp.call('make_collector', { host: 'web-1' });
+    expect(r.json.file).toBe(path.join(dir, '.secagent', 'hosts', 'web-1', 'collector.sh'));
+    expect(r.json.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect((await mcp.call('make_collector', { host: 'nope' })).isError).toBe(true);
+  });
+});
+
