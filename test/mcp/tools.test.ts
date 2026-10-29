@@ -54,9 +54,9 @@ async function leakyProject(withWeb = false): Promise<string> {
 }
 
 describe('tools', () => {
-  it('offers exactly the scan and read tools, none of which can change project.yaml', async () => {
+  it('offers exactly these tools, none of which can change project.yaml', async () => {
     const mcp = await connectMcp({ projectDir: await leakyProject(), now: NOW });
-    expect(await mcp.tools()).toEqual(['get_evidence', 'get_findings', 'get_report', 'project_info', 'run_scan']);
+    expect(await mcp.tools()).toEqual(['get_evidence', 'get_findings', 'get_report', 'project_info', 'run_scan', 'verify_claim']);
     const tools = (await mcp.client.listTools()).tools;
     for (const name of ['get_evidence', 'get_findings', 'get_report', 'project_info']) {
       expect(tools.find((t) => t.name === name)?.annotations?.readOnlyHint, name).toBe(true);

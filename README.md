@@ -2,7 +2,7 @@
 
 A security check you run from the terminal, inside the project it checks. It asks what it needs (deployed URLs, environment, servers), asks for your permission before it touches anything, scans, and writes a report anyone on the team can read, as Markdown and PDF.
 
-It is deterministic: no AI model, no API key, no data sent anywhere. The same inputs give the same result.
+It is deterministic: no AI model, no API key, no data sent anywhere. The same inputs give the same result. (An AI assistant can drive it through MCP, see below; it still decides nothing.)
 
 ## Install
 
@@ -47,6 +47,14 @@ Run `secagent` again in the same folder to scan again, change the answers, or st
 
 A verdict, what to fix first, and for every finding: what was found, why it matters, how to fix it (with advice for your stack), and a link to learn more. Checks that could not run are listed under "Could not verify" and are never counted as passed. Secret values are never printed, only the file, the line and a short fingerprint. A scan limited with `--only` marks the areas it did not re-check as coming from an earlier scan.
 
+## Use it from an AI client
+
+`secagent mcp` serves the project to Claude Code, Cursor or any MCP client, so an assistant can run the scan, read the findings and report, and judge a scanner's CVE claim, while secagent stays the one that decides every status. The assistant cannot change what gets probed. Setup and details: `docs/mcp.md`.
+
+```bash
+claude mcp add secagent -- secagent mcp --dir /path/to/your-project
+```
+
 ## Commands for scripts and CI
 
 `secagent` with no command only starts the guided scan on a terminal; elsewhere it prints this list.
@@ -61,6 +69,7 @@ A verdict, what to fix first, and for every finding: what was found, why it matt
 | `secagent snapshot add --host <name> <file>` | Store the collector's output |
 | `secagent verify --host <name> --cve <id>` | Is a scanner's CVE claim true for this host? |
 | `secagent learn` | Refresh CISA KEV and package advisories |
+| `secagent mcp [--dir]` | Serve the project to an AI client over MCP (stdio) |
 
 `.secagent/project.yaml` lists the only websites and servers secagent will touch; the code checks read the project folder and its git history.
 
