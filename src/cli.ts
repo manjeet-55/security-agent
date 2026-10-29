@@ -23,6 +23,7 @@ import { SCAN_GROUPS, scanNoAi, type ScanGroup } from './scan/no-ai.js';
 import { createTtyPrompter, type Prompter } from './ui/prompt.js';
 import { createStyle } from './ui/style.js';
 import { runWizard } from './wizard/run.js';
+import { recordConsent } from './project/consent.js';
 import { runMcpStdio } from './mcp/server.js';
 import { evaluate, EvalError } from './eval.js';
 import { acceptRisk } from './kb/accept.js';
@@ -168,6 +169,8 @@ async function runScan(args: string[], deps: CliDeps): Promise<number> {
   }
   const dir = path.resolve(values.dir);
   const only = parseGroups(values.only ?? []);
+  // A person running the scan by hand confirms what project.yaml lists; an AI client over MCP may then probe the same scope.
+  await recordConsent(dir, await loadProject(dir), deps.now ? deps.now() : new Date());
   if (only.length === 1 && only[0] === 'code' && !(await loadProject(dir)).code.enabled) {
     throw new UsageError('--only code was asked for, but the code checks are turned off (code.enabled is false in project.yaml)');
   }

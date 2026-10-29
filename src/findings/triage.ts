@@ -43,13 +43,60 @@ export async function loadTriage(projectDir: string): Promise<TriageEntry[]> {
   return parsed.data.triage ?? [];
 }
 
-/** The triage entry that holds for a finding today and whose cited lessons are still approved. */
-export function activeTriage(list: readonly TriageEntry[], findingId: string, now: Date, approvedLessons: ReadonlySet<string>): TriageEntry | undefined {
-  const today = now.toISOString().slice(0, 10);
-  return list.find((t) => t.finding_id === findingId && today <= t.expires && (t.evidence.length > 0 || t.knowledge.some((k) => approvedLessons.has(k))));
+const VERIFY_SUMMARY = /^verify_claim (CVE-\d{4}-\d{4,}): (fixed_in_installed|not_affected)$/;
+const CVE = /CVE-\d{4}-\d{4,}/g;
+
+/** The CVE ids a finding's observed text names. */
+export function cvesIn(observed: string | undefined): string[] {
+  return [...new Set((observed ?? '').toUpperCase().match(CVE) ?? [])].sort();
 }
 
-const VERIFY_SUMMARY = /^verify_claim (CVE-\d{4}-\d{4,}): (fixed_in_installed|not_affected)$/;
+/** A verify_claim verdict that a CVE does not affect a host: the only evidence that can back a triage entry. */
+export interface VerifiedVerdict {
+  cve: string;
+  target: string;
+}
+
+/** Reads cited evidence and keeps the verify_claim verdicts of fixed_in_installed / not_affected. Unreadable ids are left out. */
+export async function verifiedVerdicts(projectDir: string, ids: Iterable<string>): Promise<Map<string, VerifiedVerdict>> {
+  const store = new EvidenceStore(projectDir, 'triage');
+  const out = new Map<string, VerifiedVerdict>();
+  for (const id of new Set(ids)) {
+    if (!EVIDENCE_ID_PATTERN.test(id)) continue;
+    const ev = await store.get(id).catch(() => undefined);
+    const m = ev && ev.kind === 'advisory' ? VERIFY_SUMMARY.exec(ev.summary) : null;
+    if (ev && m?.[1]) out.set(id, { cve: m[1], target: ev.target });
+  }
+  return out;
+}
+
+/**
+ * Evidence backs a triage entry only when the finding names CVEs and every one of them is covered by a cited verdict for the same
+ * host. One CVE's verdict can never close a finding about something else (an SSH setting, another CVE).
+ */
+function evidenceCovers(entry: TriageEntry, target: string, observed: string | undefined, verdicts: ReadonlyMap<string, VerifiedVerdict>): boolean {
+  const needed = cvesIn(observed);
+  if (needed.length === 0 || entry.evidence.length === 0) return false;
+  const cited = entry.evidence.map((id) => verdicts.get(id));
+  if (cited.some((v) => v === undefined || v.target !== target)) return false;
+  const covered = new Set(cited.map((v) => (v as VerifiedVerdict).cve));
+  return needed.every((c) => covered.has(c));
+}
+
+export interface TriageContext {
+  approvedLessons: ReadonlySet<string>;
+  verdicts: ReadonlyMap<string, VerifiedVerdict>;
+  target: string;
+  observed: string | undefined;
+}
+
+/** The triage entry that holds for a finding today: not expired, and still backed by an approved lesson or covering verdicts. */
+export function activeTriage(list: readonly TriageEntry[], findingId: string, now: Date, c: TriageContext): TriageEntry | undefined {
+  const today = now.toISOString().slice(0, 10);
+  return list.find(
+    (t) => t.finding_id === findingId && today <= t.expires && (t.knowledge.some((k) => c.approvedLessons.has(k)) || evidenceCovers(t, c.target, c.observed, c.verdicts)),
+  );
+}
 
 export interface TriageInput {
   findingId: string;
@@ -80,15 +127,20 @@ export async function triageFinding(projectDir: string, input: TriageInput, now:
     goodKnowledge.push(id);
   }
   const goodEvidence: string[] = [];
-  const store = new EvidenceStore(projectDir, 'triage');
-  for (const id of input.evidence ?? []) {
-    if (!EVIDENCE_ID_PATTERN.test(id)) throw new KbError(`"${id}" is not an evidence id`);
-    const ev = await store.get(id).catch(() => undefined);
-    if (!ev) throw new KbError(`No evidence ${id}`);
-    if (ev.kind !== 'advisory' || !VERIFY_SUMMARY.test(ev.summary) || ev.target !== finding.target) {
-      throw new KbError(`Evidence ${id} is not a verify_claim verdict of fixed_in_installed or not_affected for ${finding.target}.`);
+  const cited = input.evidence ?? [];
+  if (cited.length > 0) {
+    const verdicts = await verifiedVerdicts(projectDir, cited);
+    for (const id of cited) {
+      const v = verdicts.get(id);
+      if (!v || v.target !== finding.target) throw new KbError(`Evidence ${id} is not a verify_claim verdict of fixed_in_installed or not_affected for ${finding.target}.`);
     }
-    goodEvidence.push(id);
+    const observed = record.results.find((r) => r.check_id === finding.check_id && r.target === finding.target)?.observed;
+    const needed = cvesIn(observed);
+    if (needed.length === 0) throw new KbError(`"${finding.id}" names no CVE, so a verify_claim verdict cannot close it; cite an approved lesson instead.`);
+    const covered = new Set(cited.map((id) => verdicts.get(id)?.cve));
+    const missing = needed.filter((c) => !covered.has(c));
+    if (missing.length > 0) throw new KbError(`"${finding.id}" also names ${missing.join(', ')}; cite a verify_claim verdict for each CVE it lists.`);
+    goodEvidence.push(...cited);
   }
   if (goodKnowledge.length === 0 && goodEvidence.length === 0) {
     throw new KbError('Cite an approved lesson (knowledge) or verify_claim evidence (evidence) that shows this is not a problem. Without one, the finding stays open; a person can accept the risk with secagent accept.');

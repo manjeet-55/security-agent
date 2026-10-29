@@ -153,3 +153,30 @@ describe('probe_http and make_collector', () => {
   });
 });
 
+describe('scope confirmation', () => {
+  it('an AI client may not probe websites or servers nobody on this machine confirmed; code checks still run', async () => {
+    const dir = await makeProject();
+    const mcp = await connectMcp({ projectDir: dir, now: () => NOW }, { confirmScope: false });
+    expect((await mcp.call('project_info')).json.scope_confirmed).toBe(false);
+    for (const args of [{}, { groups: ['web'] }, { groups: ['host'] }]) {
+      const r = await mcp.call('run_scan', args);
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain('have not been confirmed on this machine');
+    }
+    expect((await mcp.call('probe_http', { url: 'https://app.example.com/' })).text).toContain('have not been confirmed');
+    expect((await mcp.call('run_scan', { groups: ['code'] })).isError).toBe(false);
+  });
+
+  it('probe_http needs the exact origin of a listed site and only harmless headers', async () => {
+    const dir = await makeProject();
+    const net = { http: async (url: string) => fakeObs({ url }), tls: async () => { throw new Error('no'); }, tcp: async () => 'closed' as const };
+    const mcp = await connectMcp({ projectDir: dir, now: () => NOW, net });
+    expect((await mcp.call('probe_http', { url: 'http://app.example.com/' })).text).toContain('is not the origin');
+    expect((await mcp.call('probe_http', { url: 'https://app.example.com:8443/' })).text).toContain('is not the origin');
+    expect((await mcp.call('probe_http', { url: 'https://app.example.com/', headers: { Authorization: 'Bearer x' } })).text).toContain('not allowed');
+    const ok = await mcp.call('probe_http', { url: 'https://app.example.com/?token=abc', headers: { Origin: 'https://x.example' } });
+    expect(ok.isError).toBe(false);
+    expect(JSON.stringify((await mcp.call('get_evidence', { id: ok.json.evidence_id })).json)).not.toContain('token=abc');
+  });
+});
+

@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { hasConsent, NOT_CONFIRMED } from '../../project/consent.js';
 import { loadProject } from '../../project/schema.js';
 import { loadReportInput, verdict } from '../../report/model.js';
 import { writeReport } from '../../report/write.js';
@@ -22,7 +23,10 @@ export function registerScanTools(server: McpServer, state: ServerState): void {
         state.scanning = true;
         try {
           const only = groups && groups.length > 0 ? [...new Set(groups)] : undefined;
-          if (only?.length === 1 && only[0] === 'code' && !(await loadProject(state.dir)).code.enabled) {
+          const project = await loadProject(state.dir);
+          const probes = (only ?? ['web', 'host']).some((g) => (g === 'web' && project.targets.length > 0) || (g === 'host' && project.hosts.length > 0));
+          if (probes && !(await hasConsent(state.dir, project))) throw new ToolInputError(NOT_CONFIRMED);
+          if (only?.length === 1 && only[0] === 'code' && !project.code.enabled) {
             throw new ToolInputError('The code checks are turned off (code.enabled is false in project.yaml), so there is nothing to scan for "code".');
           }
           const { opts } = state;

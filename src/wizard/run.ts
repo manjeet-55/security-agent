@@ -10,6 +10,7 @@ import type { ScanRecord } from '../findings/schema.js';
 import { makeCollector } from '../host/collector.js';
 import { SnapshotStore } from '../host/store.js';
 import type { NetClient } from '../net/scoped.js';
+import { recordConsent } from '../project/consent.js';
 import { initProject } from '../project/init.js';
 import { loadProject, ProjectConfigError, projectFile, saveProject, type ProjectConfig } from '../project/schema.js';
 import { ScopeError } from '../project/scope.js';
@@ -127,6 +128,7 @@ function showResult(record: ScanRecord, input: ReportInput, deps: WizardDeps): v
 async function savePlan(dir: string, plan: WizardPlan, now: () => Date): Promise<void> {
   await initProject(dir, { name: plan.config.name });
   await saveProject(dir, plan.config);
+  if (plan.consentAt) await recordConsent(dir, plan.config, plan.consentAt);
   const store = new SnapshotStore(dir, now);
   for (const s of plan.snapshots) await store.add(s.host, s.text);
 }

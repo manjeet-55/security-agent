@@ -1,6 +1,6 @@
 import type { CheckInstance } from '../checks/catalog.js';
 import { exceptionFor, type RiskException } from '../kb/exceptions.js';
-import { activeTriage, type TriageEntry } from './triage.js';
+import { activeTriage, type TriageEntry, type VerifiedVerdict } from './triage.js';
 import type { Stack } from '../project/schema.js';
 import type { CheckResult, FindingStatus } from '../types.js';
 import { selectFix } from './fix.js';
@@ -25,6 +25,10 @@ export interface Decisions {
   triage: readonly TriageEntry[];
   /** Lesson ids that are approved now; a triage entry whose only citations are lessons needs one of them to still hold. */
   approvedLessons: ReadonlySet<string>;
+  /** verify_claim verdicts the triage entries cite, read again at every scan. */
+  verdicts?: ReadonlyMap<string, VerifiedVerdict>;
+  /** The observed text of each finding's current result (by finding id), so evidence-backed triage is checked against it. */
+  observed?: ReadonlyMap<string, string>;
 }
 
 const triageNote = (t: { status: string; reason: string }): string => `Marked ${t.status.replace('_', ' ')} by an AI assistant: ${t.reason}. `;
@@ -33,7 +37,7 @@ const triageNote = (t: { status: string; reason: string }): string => `Marked ${
 function decide(f: Finding, d: Decisions, now: Date): Finding {
   const withExc = withException(f, d.exceptions, now);
   if (withExc.status !== 'open') return withExc;
-  const t = activeTriage(d.triage, f.id, now, d.approvedLessons);
+  const t = activeTriage(d.triage, f.id, now, { approvedLessons: d.approvedLessons, verdicts: d.verdicts ?? new Map(), target: f.target, observed: d.observed?.get(f.id) });
   if (!t) return withExc;
   return {
     ...withExc,
@@ -49,7 +53,7 @@ function decide(f: Finding, d: Decisions, now: Date): Finding {
  * covers is accepted, and an entry that changed is followed. Findings in any other status are returned as they are.
  */
 export function reapplyExceptions(findings: readonly Finding[], exceptions: readonly RiskException[], now: Date, d?: Omit<Decisions, 'exceptions'>): Finding[] {
-  const decisions: Decisions = { exceptions, triage: d?.triage ?? [], approvedLessons: d?.approvedLessons ?? new Set() };
+  const decisions: Decisions = { exceptions, triage: d?.triage ?? [], approvedLessons: d?.approvedLessons ?? new Set(), ...(d?.verdicts ? { verdicts: d.verdicts } : {}), ...(d?.observed ? { observed: d.observed } : {}) };
   return findings.map((f) => {
     const triaged = (f.status === 'false_positive' || f.status === 'not_applicable') && f.triage;
     if (f.status !== 'accepted_risk' && f.status !== 'open' && !triaged) return f;
@@ -80,7 +84,13 @@ export function resultsToFindings(
   exceptions: readonly RiskException[] = [],
   more?: Omit<Decisions, 'exceptions'>,
 ): Finding[] {
-  const decisions: Decisions = { exceptions, triage: more?.triage ?? [], approvedLessons: more?.approvedLessons ?? new Set() };
+  const decisions: Decisions = {
+    exceptions,
+    triage: more?.triage ?? [],
+    approvedLessons: more?.approvedLessons ?? new Set(),
+    ...(more?.verdicts ? { verdicts: more.verdicts } : {}),
+    observed: new Map([...(more?.observed ?? new Map<string, string>()), ...results.map((r) => [resultKey(r), r.observed] as const)]),
+  };
   const previousById = new Map((previous?.findings ?? []).map((f) => [f.id, f] as const));
   const iso = now.toISOString();
   const findings: Finding[] = [];

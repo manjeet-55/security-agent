@@ -2,6 +2,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { onTestFinished } from 'vitest';
 import { createMcpServer } from '../../src/mcp/server.js';
+import { recordConsent } from '../../src/project/consent.js';
+import { loadProject } from '../../src/project/schema.js';
 import type { ServerOptions, ServerState } from '../../src/mcp/state.js';
 
 export interface ToolCall {
@@ -19,7 +21,12 @@ export interface Connected {
 }
 
 /** A secagent MCP server and a client linked in memory; closed when the test finishes. */
-export async function connectMcp(opts: ServerOptions): Promise<Connected> {
+export async function connectMcp(opts: ServerOptions, setup: { confirmScope?: boolean } = {}): Promise<Connected> {
+  if (setup.confirmScope !== false) {
+    // As if the person had run the guided scan here once; a broken project.yaml stays broken for the test to see.
+    const at = opts.now ? opts.now() : new Date(0);
+    await loadProject(opts.projectDir).then((p) => recordConsent(opts.projectDir, p, at), () => undefined);
+  }
   const { server, state } = createMcpServer(opts);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);

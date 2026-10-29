@@ -84,6 +84,9 @@ export class Scope {
 
   private async resolveChecked(hostname: string, allowPrivate: boolean): Promise<string[]> {
     const addresses = await this.resolve(hostname, this.project.network.ip_family);
+    // Link-local holds cloud metadata services (169.254.169.254): never probed, whatever project.yaml says.
+    const linkLocal = addresses.filter((a) => /^(::ffff:)?169\.254\./i.test(a) || /^fe[89ab]/i.test(a));
+    if (linkLocal.length > 0) throw new ScopeError(`"${hostname}" is a link-local address (${linkLocal.join(', ')}), such as a cloud metadata service; secagent never probes those.`);
     if (!allowPrivate && !isIP(hostname)) {
       const priv = addresses.filter(isPrivateAddress);
       if (priv.length > 0) {

@@ -6,9 +6,20 @@ import { EvidenceStore } from '../../evidence/store.js';
 import { makeCollector } from '../../host/collector.js';
 import { ScopedNet } from '../../net/scoped.js';
 import { loadProject } from '../../project/schema.js';
+import { hasConsent, NOT_CONFIRMED } from '../../project/consent.js';
 import { Scope } from '../../project/scope.js';
-import { guarded, jsonResult } from '../result.js';
+import { guarded, jsonResult, ToolInputError } from '../result.js';
 import type { ServerState } from '../state.js';
+
+/** Request headers a probe may set: enough to test CORS, caching and content negotiation, never credentials or framing. */
+const PROBE_HEADERS = ['accept', 'accept-language', 'user-agent', 'origin', 'referer', 'range', 'if-none-match', 'if-modified-since'];
+
+/** The URL with its query string masked, for evidence and summaries. */
+function maskQuery(url: string): string {
+  const u = new URL(url);
+  if (u.search) u.search = '?<redacted>';
+  return u.href;
+}
 
 export function registerProbeTools(server: McpServer, state: ServerState): void {
   server.registerTool(
@@ -19,17 +30,22 @@ export function registerProbeTools(server: McpServer, state: ServerState): void 
       inputSchema: {
         url: z.string().url(),
         method: z.enum(['GET', 'HEAD']).optional(),
-        headers: z.record(z.string(), z.string()).optional().describe('Extra request headers (Host cannot be set)'),
+        headers: z.record(z.string(), z.string()).optional().describe(`Extra request headers, only: ${PROBE_HEADERS.join(', ')}`),
       },
       annotations: { openWorldHint: true },
     },
     ({ url, method, headers }) =>
       guarded(async () => {
         const project = await loadProject(state.dir);
+        if (!(await hasConsent(state.dir, project))) throw new ToolInputError(NOT_CONFIRMED);
+        const target = project.targets.find((t) => new URL(t.url).origin === new URL(url).origin);
+        if (!target) throw new ToolInputError(`${new URL(url).origin} is not the origin (scheme, host and port) of a website in project.yaml.`);
+        const bad = Object.keys(headers ?? {}).filter((h) => !PROBE_HEADERS.includes(h.toLowerCase()));
+        if (bad.length > 0) throw new ToolInputError(`Header(s) not allowed in a probe: ${bad.join(', ')}. Allowed: ${PROBE_HEADERS.join(', ')}.`);
         const net = state.opts.net ?? new ScopedNet(new Scope(project), project.network.ip_family);
         const obs = await net.http(url, { ...(method ? { method } : {}), ...(headers ? { headers } : {}) });
-        const target = project.targets.find((t) => new URL(t.url).host === new URL(url).host)?.id ?? new URL(url).host;
-        const evidence_id = await new EvidenceStore(state.dir, project.network.scan_label, () => state.now()).put('http', target, `probe_http ${method ?? 'GET'} ${url} → ${obs.status}`, { ...obs, bodySnippet: '[omitted]' });
+        const shown = maskQuery(url);
+        const evidence_id = await new EvidenceStore(state.dir, project.network.scan_label, () => state.now()).put('http', target.id, `probe_http ${method ?? 'GET'} ${shown} → ${obs.status}`, { ...obs, url: maskQuery(obs.url), bodySnippet: '[omitted]' });
         return jsonResult({
           url: obs.url,
           status: obs.status,

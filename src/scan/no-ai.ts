@@ -12,7 +12,8 @@ import type { ScanRecord } from '../findings/schema.js';
 import { FindingsStore } from '../findings/store.js';
 import { loadExceptions } from '../kb/exceptions.js';
 import { loadKnowledge } from '../kb/store.js';
-import { loadTriage } from '../findings/triage.js';
+import { loadTriage, verifiedVerdicts } from '../findings/triage.js';
+import { resultKey } from '../findings/ids.js';
 import { SnapshotStore, type SnapshotReader } from '../host/store.js';
 import { ScopedNet, type NetClient } from '../net/scoped.js';
 import { GLOBAL_CHECKS_DIR } from '../paths.js';
@@ -85,14 +86,16 @@ export async function scanNoAi(projectDir: string, deps: ScanDeps = {}): Promise
   const exceptions = await loadExceptions(projectDir);
   const triage = await loadTriage(projectDir);
   const approvedLessons = new Set(triage.length > 0 ? (await loadKnowledge(projectDir, [])).lessons.filter((l) => l.review === 'approved').map((l) => l.id) : []);
-  const findings = resultsToFindings(results, byId, previous, project.stack, scannedAt, exceptions, { triage, approvedLessons });
+  const verdicts = await verifiedVerdicts(projectDir, triage.flatMap((t) => t.evidence));
+  const observed = new Map([...(previous?.results ?? []), ...results].map((r) => [resultKey(r), r.observed] as const));
+  const findings = resultsToFindings(results, byId, previous, project.stack, scannedAt, exceptions, { triage, approvedLessons, verdicts, observed });
 
   // A partial scan says nothing about the groups it skipped: they stay as the last scan left them.
   const ranKinds = new Set<SubjectKind>([...groups].flatMap((g) => GROUP_KINDS[g]));
   const skipped = (checkId: string): boolean => !byId.get(checkId)?.applies_to.some((k) => ranKinds.has(k));
   const keptResults = groups.size === SCAN_GROUPS.length ? [] : (previous?.results ?? []).filter((r) => skipped(r.check_id));
   const keptFindings =
-    groups.size === SCAN_GROUPS.length ? [] : reapplyExceptions((previous?.findings ?? []).filter((f) => skipped(f.check_id)), exceptions, scannedAt, { triage, approvedLessons });
+    groups.size === SCAN_GROUPS.length ? [] : reapplyExceptions((previous?.findings ?? []).filter((f) => skipped(f.check_id)), exceptions, scannedAt, { triage, approvedLessons, verdicts, observed });
   const allResults = [...keptResults, ...results];
   const allFindings = [...keptFindings, ...findings];
   const record: ScanRecord = {

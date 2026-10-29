@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { FindingsStore } from '../../findings/store.js';
 import { snapshotFreshness, SnapshotStore } from '../../host/store.js';
+import { hasConsent } from '../../project/consent.js';
 import { loadProject } from '../../project/schema.js';
 import { guarded, jsonResult } from '../result.js';
 import type { ServerState } from '../state.js';
@@ -28,6 +29,7 @@ export async function projectInfo(state: ServerState): Promise<unknown> {
     targets: project.targets.map((t) => ({ id: t.id, url: t.url, type: t.type, env: t.env })),
     hosts: await Promise.all(project.hosts.map(async (h) => ({ name: h.name, address: h.address, env: h.env, snapshot: await hostSnapshot(snapshots, h.name, now) }))),
     code: project.code,
+    scope_confirmed: await hasConsent(state.dir, project),
     groups: [...(project.code.enabled ? ['code'] : []), ...(project.targets.length > 0 ? ['web'] : []), ...(project.hosts.length > 0 ? ['host'] : [])],
     last_scan: last
       ? {
