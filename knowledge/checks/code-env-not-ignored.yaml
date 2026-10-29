@@ -1,0 +1,12 @@
+id: code-env-not-ignored
+type: code_secrets
+title: Environment, key and credentials files are covered by .gitignore
+severity: high
+applies_to: [code]
+params:
+  rule: env_not_ignored
+fix_hints:
+  any: 'Add the file (or a pattern such as ".env*" with "!.env.example") to .gitignore before anyone runs "git add .". A file that is meant to be committed can be listed in code.exclude in project.yaml.'
+source_url: https://git-scm.com/docs/gitignore
+added_by: seed
+review: approved

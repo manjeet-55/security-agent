@@ -56,7 +56,7 @@ function isWalkNoise(rel: string): boolean {
 }
 
 /** Paths come from git or the file system, but are checked anyway: nothing absolute, nothing that climbs out, nothing in .secagent. */
-function isScannablePath(rel: string): boolean {
+export function isScannablePath(rel: string): boolean {
   if (rel === '' || rel.includes('\0') || path.posix.isAbsolute(rel) || path.win32.isAbsolute(rel)) return false;
   const segments = rel.split('/');
   return !segments.includes('..') && segments[0] !== SECAGENT_DIRNAME;

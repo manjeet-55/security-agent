@@ -1,0 +1,12 @@
+id: code-env-files-tracked
+type: code_secrets
+title: No environment, key or credentials files are committed to git
+severity: high
+applies_to: [code]
+params:
+  rule: env_tracked
+fix_hints:
+  any: 'Rotate whatever the file holds (it is in the history for everyone with a copy), run "git rm --cached <file>", add it to .gitignore and commit a template such as .env.example instead. A public certificate can be listed in code.exclude in project.yaml.'
+source_url: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
+added_by: seed
+review: approved
