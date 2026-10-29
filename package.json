@@ -1,7 +1,7 @@
 {
   "name": "secagent",
   "version": "0.1.0",
-  "description": "Stack-agnostic security agent: deterministic probes and a per-project knowledge base, exposed over MCP",
+  "description": "A security check you run in your project folder: it asks what to check, asks for permission, scans code, websites and servers, and writes a plain-language Markdown and PDF report. Deterministic, with an MCP server for AI assistants.",
   "type": "module",
   "bin": {
     "secagent": "dist/cli.js"
@@ -36,5 +36,16 @@
     "typescript": "6.0.3",
     "vite": "7.3.7",
     "vitest": "4.1.12"
-  }
+  },
+  "keywords": [
+    "security",
+    "scanner",
+    "cli",
+    "mcp",
+    "report",
+    "secrets",
+    "headers",
+    "tls",
+    "devsecops"
+  ]
 }
