@@ -5,6 +5,7 @@ import type { Advisories } from '../advisories/types.js';
 import type { EvidenceStore } from '../evidence/store.js';
 import { ObservationError } from '../checks/errors.js';
 import { aptListsEmpty, classifyOrigin } from '../host/origin.js';
+import { describeDpkgState, isSettled } from '../host/parse.js';
 import { requirePackages, type HostSnapshot } from '../host/snapshot.js';
 import { MAX_SNAPSHOT_AGE_DAYS, snapshotFreshness, type SnapshotReader } from '../host/store.js';
 import type { Host } from '../project/schema.js';
@@ -104,6 +105,15 @@ function originConcern(snap: HostSnapshot, source: string, codename: string): st
     return `${bin.name} origin is unknown (${o.repo ? `served by ${o.repo}, not an Ubuntu or Debian host` : 'apt-cache lists no repository for it'})`;
   }
   return undefined;
+}
+
+/**
+ * Why the installed version of a source package can't be taken at face value: one of its binaries is half-installed,
+ * unpacked, half-configured or flagged reinstall-required, so dpkg's version may not be what actually runs.
+ */
+function stateConcern(snap: HostSnapshot, source: string): string | undefined {
+  const broken = snap.packages.find((p) => p.source === source && !isSettled(p));
+  return broken ? `${broken.name} is ${describeDpkgState(broken.state)}; run dpkg --configure -a on the host and collect again` : undefined;
 }
 
 /** Verdicts that dismiss a finding; they need evidence, so they degrade to unverifiable when the evidence is doubtful. */
@@ -262,6 +272,7 @@ export async function verifyClaim(deps: ClaimDeps, claim: { cve: string; package
       }
       const codename = distroOf(snap.os)?.codename ?? '';
       packages = downgradeSafe(packages, (p) => originConcern(snap, p.package, codename));
+      packages = downgradeSafe(packages, (p) => stateConcern(snap, p.package));
       const { state, ageDays } = snapshotFreshness(snap.collected_at, now());
       if (state === 'stale') {
         const days = Math.floor(ageDays);

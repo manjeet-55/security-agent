@@ -195,6 +195,38 @@ describe('verifyClaim v2 fail-closed', () => {
     expect(r.verdict).toBe('unverifiable');
   });
 
+  describe('dpkg states', () => {
+    const withState = (state: string, version?: string) => {
+      const env = version ? withSourceVersion(fixtureEnvelope('ubuntu-24-04'), 'openssh', version) : fixtureEnvelope('ubuntu-24-04');
+      const pk = sectionOf(env, 'packages').replace(/^ii (\t(openssh-server|openssh-client|openssh-sftp-server)\t)/gm, `${state}$1`);
+      return decodeSnapshot(withSection(env, 'packages', pk));
+    };
+
+    it.each(['iH ', 'iU ', 'iF ', 'iHR', 'iiR'])('a package in state "%s" is unverifiable, naming dpkg --configure -a', async (state) => {
+      for (const cve of ['CVE-2024-6387', 'CVE-2021-41617']) {
+        const r = await verify(withState(state), cve);
+        expect(r.verdict).toBe('unverifiable');
+        expect(r.packages[0]?.note).toContain('dpkg --configure -a');
+        expect(r.packages[0]?.note).toContain(state.trim());
+      }
+    });
+
+    it.each(['iU ', 'iHR'])('a vulnerable version in state "%s" stays vulnerable', async (state) => {
+      expect((await verify(withState(state, '1:9.6p1-3ubuntu13'), 'CVE-2024-6387')).verdict).toBe('vulnerable');
+    });
+
+    it.each(['ii ', 'hi ', 'iW ', 'it '])('a settled state "%s" still gives the safe verdict', async (state) => {
+      expect((await verify(withState(state), 'CVE-2024-6387')).verdict).toBe('fixed_in_installed');
+      expect((await verify(withState(state), 'CVE-2021-41617')).verdict).toBe('not_affected');
+    });
+
+    it('one broken binary among settled ones is enough', async () => {
+      const env = fixtureEnvelope('ubuntu-24-04');
+      const pk = sectionOf(env, 'packages').replace(/^ii (\topenssh-sftp-server\t)/m, 'iU $1');
+      expect((await verify(decodeSnapshot(withSection(env, 'packages', pk)), 'CVE-2024-6387')).verdict).toBe('unverifiable');
+    });
+  });
+
   it('empty apt lists downgrade a safe verdict', async () => {
     const env = fixtureEnvelope('ubuntu-24-04');
     const policy = sectionOf(env, 'apt_policy').replace(/^ {8}\d+ http\S*.*$/gm, '');

@@ -8,6 +8,8 @@ import {
   parsePackages,
   parseReboot,
   parseSshdT,
+  describeDpkgState,
+  isSettled,
 } from '../../src/host/parse.js';
 
 describe('parsers', () => {
@@ -23,8 +25,8 @@ describe('parsers', () => {
   it('keeps installed packages only, splitting arch and defaulting source', () => {
     const text = 'ii \tlibssl3t64:amd64\t3.0.13-0ubuntu3.16\topenssl\t3.0.13-0ubuntu3.16\nrc \told\t1.0\told\t1.0\nii \tbash\t5.2-1\t\t\n';
     expect(parsePackages(text)).toEqual([
-      { name: 'libssl3t64', arch: 'amd64', version: '3.0.13-0ubuntu3.16', source: 'openssl', source_version: '3.0.13-0ubuntu3.16' },
-      { name: 'bash', version: '5.2-1', source: 'bash', source_version: '5.2-1' },
+      { name: 'libssl3t64', arch: 'amd64', state: 'ii ', version: '3.0.13-0ubuntu3.16', source: 'openssl', source_version: '3.0.13-0ubuntu3.16' },
+      { name: 'bash', state: 'ii ', version: '5.2-1', source: 'bash', source_version: '5.2-1' },
     ]);
   });
 
@@ -80,6 +82,26 @@ describe('parsers', () => {
   it('counts held and half-configured packages as installed but not removed ones', () => {
     const text = 'hi \topenssh-server\t1\topenssh\t1\niU \ta\t1\ta\t1\nrc \tb\t1\tb\t1\nun \tc\t1\tc\t1\niW \td\t1\td\t1\n';
     expect(parsePackages(text).map((p) => p.name)).toEqual(['openssh-server', 'a', 'd']);
+  });
+
+  it('keeps the dpkg status code and error flag, and tells settled states from half-installed ones', () => {
+    const text = ['ii \ta\t1\ta\t1', 'hi \tb\t1\tb\t1', 'iW \tc\t1\tc\t1', 'it \td\t1\td\t1', 'iU \te\t1\te\t1', 'iH \tf\t1\tf\t1', 'iF \tg\t1\tg\t1', 'iHR\th\t1\th\t1', 'iiR\ti\t1\ti\t1'].join('\n');
+    const packages = parsePackages(text);
+    expect(packages.map((p) => p.state)).toEqual(['ii ', 'hi ', 'iW ', 'it ', 'iU ', 'iH ', 'iF ', 'iHR', 'iiR']);
+    expect(packages.map((p) => [p.name, isSettled(p)])).toEqual([
+      ['a', true],
+      ['b', true],
+      ['c', true],
+      ['d', true],
+      ['e', false],
+      ['f', false],
+      ['g', false],
+      ['h', false],
+      ['i', false],
+    ]);
+    expect(describeDpkgState('iU ')).toBe('unpacked but not configured (iU)');
+    expect(describeDpkgState('iiR')).toBe('reinstall required (iiR)');
+    expect(describeDpkgState('iHR')).toBe('half-installed, reinstall required (iHR)');
   });
 
   it('reads unattended-upgrades state and reboot state', () => {

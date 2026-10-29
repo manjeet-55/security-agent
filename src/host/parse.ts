@@ -8,6 +8,8 @@ export interface OsRelease {
 export interface InstalledPackage {
   name: string;
   arch?: string;
+  /** dpkg's three-character status abbreviation: want, state, error flag (e.g. "ii ", "hi ", "iU ", "iHR"). */
+  state: string;
   version: string;
   source: string;
   source_version: string;
@@ -48,18 +50,49 @@ export function parseOsRelease(text: string): OsRelease {
 /**
  * dpkg-query lines "<status>\t<name[:arch]>\t<version>\t<source>\t<source version>". The status is three characters
  * (want, state, error); a package counts as installed unless its state is "n" (not-installed) or "c" (config-files),
- * so held ("hi"), reinstall-required ("iR") and half-configured rows still count.
+ * so held ("hi"), reinstall-required ("iR") and half-configured rows still count. The status is kept on the package:
+ * `isSettled` says whether it is fully installed.
  */
 export function parsePackages(text: string): InstalledPackage[] {
   const out: InstalledPackage[] = [];
   for (const line of text.split('\n')) {
     const [status, nameArch, version, source, sourceVersion] = line.split('\t');
-    const state = status?.[1];
-    if (!state || state === 'n' || state === 'c' || !nameArch || !version) continue;
+    const dpkgState = status?.[1];
+    if (!dpkgState || dpkgState === 'n' || dpkgState === 'c' || !nameArch || !version) continue;
     const [name = nameArch, arch] = nameArch.split(':');
-    out.push({ name, ...(arch ? { arch } : {}), version, source: source || name, source_version: sourceVersion || version });
+    out.push({
+      name,
+      ...(arch ? { arch } : {}),
+      state: (status ?? '').padEnd(3, ' ').slice(0, 3),
+      version,
+      source: source || name,
+      source_version: sourceVersion || version,
+    });
   }
   return out;
+}
+
+/** Fully installed and configured: state installed, triggers-awaited or triggers-pending (any want, such as hold) and no error flag. */
+export function isSettled(pkg: Pick<InstalledPackage, 'state'>): boolean {
+  return /^.[iWt] $/.test(pkg.state);
+}
+
+const DPKG_STATE_NAMES: Record<string, string> = {
+  H: 'half-installed',
+  U: 'unpacked but not configured',
+  F: 'half-configured',
+  W: 'triggers awaited',
+  t: 'triggers pending',
+};
+
+/** e.g. "unpacked but not configured (iU)", "half-installed, reinstall required (iHR)". */
+export function describeDpkgState(state: string): string {
+  const parts: string[] = [];
+  const stateChar = state[1];
+  if (stateChar && stateChar !== 'i') parts.push(DPKG_STATE_NAMES[stateChar] ?? `state ${stateChar}`);
+  const flag = state[2];
+  if (flag && flag !== ' ') parts.push(flag === 'R' ? 'reinstall required' : `error flag ${flag}`);
+  return `${parts.join(', ') || 'installed'} (${state.trimEnd()})`;
 }
 
 /** apt-cache policy blocks → per installed package: the installed ("***") version's sources plus the other offered versions. */

@@ -186,6 +186,40 @@ describe('host_package advisories', () => {
   });
 });
 
+describe('host_package advisories and dpkg states', () => {
+  const withState = (state: string, version?: string) => {
+    const env = version ? withSourceVersion(fixtureEnvelope('ubuntu-24-04'), 'openssh', version) : fixtureEnvelope('ubuntu-24-04');
+    const pk = sectionOf(env, 'packages').replace(/^ii (\t(openssh-server|openssh-client|openssh-sftp-server)\t)/gm, `${state}$1`);
+    return decodeSnapshot(withSection(env, 'packages', pk));
+  };
+
+  it.each(['iH ', 'iU ', 'iF ', 'iHR', 'iiR'])('does not pass while a checked package is in state "%s"', async (state) => {
+    const err = await run(withState(state), { assert: 'advisories' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ObservationError);
+    expect(err).toMatchObject({ code: 'DPKG_STATE' });
+    expect((err as Error).message).toContain('dpkg --configure -a');
+    expect((err as Error).message).toContain('openssh-server');
+  });
+
+  it('still fails a vulnerable package in a half-installed state', async () => {
+    const out = await run(withState('iU ', '1:9.6p1-3ubuntu13'), { assert: 'advisories' });
+    expect(out.outcome).toBe('fail');
+    expect(out.observed).toContain('CVE-2024-6387');
+  });
+
+  it.each(['ii ', 'hi ', 'iW ', 'it '])('passes with the settled state "%s"', async (state) => {
+    expect((await run(withState(state), { assert: 'advisories' })).outcome).toBe('pass');
+  });
+
+  it('ignores a broken package that is not from a distro repository (it is not checked anyway)', async () => {
+    const env = fixtureEnvelope('ubuntu-24-04');
+    const policy = `${sectionOf(env, 'apt_policy')}\nnginx:\n  Installed: 1.30.6-1~noble\n *** 1.30.6-1~noble 500\n        500 http://nginx.org/packages/ubuntu noble/nginx amd64 Packages\n        100 /var/lib/dpkg/status\n`;
+    const packages = sectionOf(env, 'packages').replace(/^ii \tnginx\t[^\n]*$/m, 'iU \tnginx\t1.30.6-1~noble\tnginx\t1.30.6-1~noble');
+    const snap = decodeSnapshot(withSection(withSection(env, 'apt_policy', policy), 'packages', packages));
+    expect((await run(snap, { assert: 'advisories' })).outcome).toBe('pass');
+  });
+});
+
 describe('host_package third_party and reboot', () => {
   const env = fixtureEnvelope('ubuntu-24-04');
 

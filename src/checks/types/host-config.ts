@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { nginxDirectiveValues } from '../../host/parse.js';
+import { nginxDirectiveValues, type ListeningSocket } from '../../host/parse.js';
 import type { HostSnapshot } from '../../host/snapshot.js';
 import type { CheckType } from '../check-type.js';
 import { getSnapshot } from '../context.js';
@@ -22,7 +22,7 @@ export const hostConfigParams = z.discriminatedUnion('rule', [
       rule: z.literal('nginx_directive'),
       directive: z.string().regex(/^[a-z_]+$/),
       equals: z.string().optional(),
-      forbid_tokens: z.array(z.string()).optional(),
+      forbid_tokens: z.array(z.string()).min(1).optional(),
       /** nginx's built-in default when the directive is never set (e.g. server_tokens → "on"). */
       absent_default: z.string().optional(),
       when_absent: z.enum(['pass', 'fail', 'unverifiable']).default('unverifiable'),
@@ -43,23 +43,43 @@ export interface HostConfigVerdict {
 const WILDCARD = new Set(['0.0.0.0', '::', '*']);
 
 /**
- * A missing tool (rc 127) counts as "not installed" only when the collector ran as root and dpkg lists no package
- * that would provide it; otherwise the tool may simply be off the collector's PATH or the package list unreadable.
+ * A missing tool (rc 127) counts as "not installed" only when the collector ran as root, dpkg lists no package that would
+ * provide it, and the listening sockets are readable and show nothing of that name running. Otherwise the tool may simply be
+ * off the collector's PATH (a source build, a container, a snap) or the package list unreadable.
  */
-function assertProvablyAbsent(snap: HostSnapshot, tool: 'sshd' | 'nginx', reason: string, isProvider: (name: string) => boolean): void {
+function assertProvablyAbsent(
+  snap: HostSnapshot,
+  tool: 'sshd' | 'nginx',
+  reason: string,
+  isProvider: (name: string) => boolean,
+  isRunning: (socket: ListeningSocket) => boolean,
+): void {
   if (!snap.is_root) throw new ObservationError('NOT_ROOT', `"${tool}" could not be run (${reason}); run the collector as root.`);
   if (snap.packages_error !== undefined || snap.packages.length === 0) {
     throw new ObservationError('TOOL_MISSING', `"${tool}" was not found (${reason}) and the package list is unusable, so its absence is unproven.`);
   }
   const found = snap.packages.find((pkg) => isProvider(pkg.name));
   if (found) throw new ObservationError('TOOL_MISSING', `"${tool}" was not found (${reason}) but package ${found.name} is installed; run the collector as root with a full PATH.`);
+  if (snap.listening.state !== 'ok') {
+    throw new ObservationError(
+      'TOOL_MISSING',
+      `"${tool}" was not found (${reason}) and the listening sockets could not be read (${snap.listening.reason}), so a running ${tool} cannot be ruled out.`,
+    );
+  }
+  const running = snap.listening.value.find(isRunning);
+  if (running) {
+    throw new ObservationError(
+      'TOOL_MISSING',
+      `"${tool}" was not found (${reason}) but ${running.process ?? 'a process'} is listening on ${running.address}:${running.port}; it runs from outside the collector's PATH, so run the collector as root with a full PATH.`,
+    );
+  }
 }
 
 export function evaluateHostConfig(snap: HostSnapshot, p: HostConfigParams): HostConfigVerdict {
   switch (p.rule) {
     case 'sshd_value': {
       if (snap.sshd.state === 'absent') {
-        assertProvablyAbsent(snap, 'sshd', snap.sshd.reason, (n) => n === 'openssh-server');
+        assertProvablyAbsent(snap, 'sshd', snap.sshd.reason, (n) => n === 'openssh-server', (s) => s.process === 'sshd' || s.port === 22);
         return { outcome: 'pass', observed: 'sshd is not installed on this host', excerpt: snap.sshd };
       }
       if (snap.sshd.state === 'error') {
@@ -77,7 +97,7 @@ export function evaluateHostConfig(snap: HostSnapshot, p: HostConfigParams): Hos
     }
     case 'nginx_directive': {
       if (snap.nginx.state === 'absent') {
-        assertProvablyAbsent(snap, 'nginx', snap.nginx.reason, (n) => n.startsWith('nginx') || n === 'openresty');
+        assertProvablyAbsent(snap, 'nginx', snap.nginx.reason, (n) => n.startsWith('nginx') || n === 'openresty', (s) => s.process === 'nginx');
         return { outcome: 'pass', observed: 'nginx is not installed on this host', excerpt: snap.nginx };
       }
       if (snap.nginx.state === 'error') {

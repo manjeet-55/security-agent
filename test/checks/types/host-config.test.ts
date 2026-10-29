@@ -7,6 +7,8 @@ import { fixtureEnvelope, fixtureSnapshot, readerFor, sectionOf, withSection } f
 
 const P = (p: Record<string, unknown>) => hostConfigParams.parse(p);
 const noble = fixtureSnapshot('ubuntu-24-04');
+/** ss output with neither sshd nor nginx in it. */
+const LISTEN_NONE = 'LISTEN 0 128 127.0.0.1:5432 0.0.0.0:* users:(("postgres",pid=9,fd=5))\n';
 
 describe('evaluateHostConfig on a real Ubuntu 24.04 snapshot', () => {
   it('checks sshd -T values', () => {
@@ -41,7 +43,7 @@ describe('evaluateHostConfig edge cases', () => {
 
   it('passes when sshd or nginx is not installed, and is unverifiable when unreadable', () => {
     const noOpenssh = sectionOf(env, 'packages').split('\n').filter((l) => !l.split('\t')[1]?.startsWith('openssh-server')).join('\n');
-    const noSshd = decodeSnapshot(withSection(withSection(env, 'sshd', 'sh: 1: /usr/sbin/sshd: not found', 127), 'packages', noOpenssh));
+    const noSshd = decodeSnapshot(withSection(withSection(withSection(env, 'sshd', 'sh: 1: /usr/sbin/sshd: not found', 127), 'packages', noOpenssh), 'listening', LISTEN_NONE));
     expect(evaluateHostConfig(noSshd, P({ rule: 'sshd_value', key: 'passwordauthentication', allowed: ['no'] })).observed).toBe(
       'sshd is not installed on this host',
     );
@@ -75,7 +77,7 @@ describe('evaluateHostConfig missing tools fail closed', () => {
     const snap = decodeSnapshot(withSection(env, 'nginx', 'sh: 1: nginx: not found', 127));
     expect(() => evaluateHostConfig(snap, nginxRule)).toThrow(ObservationError);
     const none = sectionOf(env, 'packages').split('\n').filter((l) => !/^ii \t(lib)?nginx|openresty/.test(l)).join('\n');
-    const gone = decodeSnapshot(withSection(withSection(env, 'nginx', 'sh: 1: nginx: not found', 127), 'packages', none));
+    const gone = decodeSnapshot(withSection(withSection(withSection(env, 'nginx', 'sh: 1: nginx: not found', 127), 'packages', none), 'listening', LISTEN_NONE));
     expect(evaluateHostConfig(gone, nginxRule).outcome).toBe('pass');
   });
 
@@ -92,8 +94,55 @@ describe('evaluateHostConfig missing tools fail closed', () => {
     expect(() => evaluateHostConfig(b, nginxRule)).toThrow(/run the collector as root/);
   });
 
-  it('nginx_directive params need equals or forbid_tokens', () => {
+  it('nginx_directive params need equals or forbid_tokens, and forbid_tokens may not be empty', () => {
     expect(() => hostConfigParams.parse({ rule: 'nginx_directive', directive: 'server_tokens' })).toThrow(/equals/);
+    expect(() => hostConfigParams.parse({ rule: 'nginx_directive', directive: 'server_tokens', forbid_tokens: [] })).toThrow();
+    expect(hostConfigParams.safeParse({ rule: 'nginx_directive', directive: 'server_tokens', forbid_tokens: [] }).success).toBe(false);
+    expect(hostConfigParams.safeParse({ rule: 'nginx_directive', directive: 'server_tokens', forbid_tokens: ['on'] }).success).toBe(true);
+  });
+});
+
+describe('a missing sshd/nginx passes only when nothing of that name is running', () => {
+  const env = fixtureEnvelope('ubuntu-24-04');
+  const sshdRule = P({ rule: 'sshd_value', key: 'passwordauthentication', allowed: ['no'] });
+  const nginxRule = P({ rule: 'nginx_directive', directive: 'server_tokens', equals: 'off', absent_default: 'on' });
+  const dropPackages = (re: RegExp) => sectionOf(env, 'packages').split('\n').filter((l) => !re.test(l)).join('\n');
+  const sshAbsent = (listening: string, rc = 0) =>
+    decodeSnapshot(withSection(withSection(withSection(env, 'sshd', 'sh: 1: /usr/sbin/sshd: not found', 127), 'packages', dropPackages(/\topenssh-server\t/)), 'listening', listening, rc));
+  const nginxAbsent = (listening: string, rc = 0) =>
+    decodeSnapshot(
+      withSection(withSection(withSection(env, 'nginx', 'sh: 1: /usr/sbin/nginx: not found', 127), 'packages', dropPackages(/^[^\t]*\t(lib)?nginx|openresty/)), 'listening', listening, rc),
+    );
+
+  it('nginx: a socket owned by nginx proves it is running, so the missing binary is TOOL_MISSING', () => {
+    const lst = 'LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=812,fd=6))\nLISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=700,fd=3))\n';
+    expect(() => evaluateHostConfig(nginxAbsent(lst), nginxRule)).toThrow(expect.objectContaining({ code: 'TOOL_MISSING' }));
+    expect(() => evaluateHostConfig(nginxAbsent(lst), nginxRule)).toThrow(/443/);
+  });
+
+  it('sshd: a socket owned by sshd, or anything on port 22, proves it is running', () => {
+    const sshdSocket = 'LISTEN 0 128 0.0.0.0:2222 0.0.0.0:* users:(("sshd",pid=700,fd=3))\n';
+    const port22 = 'LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("dropbear",pid=700,fd=3))\n';
+    expect(() => evaluateHostConfig(sshAbsent(sshdSocket), sshdRule)).toThrow(expect.objectContaining({ code: 'TOOL_MISSING' }));
+    expect(() => evaluateHostConfig(sshAbsent(port22), sshdRule)).toThrow(expect.objectContaining({ code: 'TOOL_MISSING' }));
+  });
+
+  it('an unreadable or missing listening section leaves the absence unproven', () => {
+    for (const [text, rc] of [['sh: 1: ss: not found', 127], ['ss: permission denied', 1]] as const) {
+      expect(() => evaluateHostConfig(nginxAbsent(text, rc), nginxRule)).toThrow(expect.objectContaining({ code: 'TOOL_MISSING' }));
+      expect(() => evaluateHostConfig(sshAbsent(text, rc), sshdRule)).toThrow(expect.objectContaining({ code: 'TOOL_MISSING' }));
+    }
+    const noSection = { ...env, sections: Object.fromEntries(Object.entries(env.sections).filter(([k]) => k !== 'listening')) };
+    const snap = decodeSnapshot(withSection(withSection(noSection, 'nginx', 'sh: 1: nginx: not found', 127), 'packages', dropPackages(/^[^\t]*\t(lib)?nginx|openresty/)));
+    expect(() => evaluateHostConfig(snap, nginxRule)).toThrow(expect.objectContaining({ code: 'TOOL_MISSING' }));
+  });
+
+  it('passes when root, no package, and a readable listening section without that process', () => {
+    expect(evaluateHostConfig(nginxAbsent(LISTEN_NONE), nginxRule)).toMatchObject({ outcome: 'pass', observed: 'nginx is not installed on this host' });
+    expect(evaluateHostConfig(sshAbsent(LISTEN_NONE), sshdRule)).toMatchObject({ outcome: 'pass', observed: 'sshd is not installed on this host' });
+    // an sshd socket does not make a missing nginx unprovable, and vice versa
+    const onlySsh = 'LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=700,fd=3))\n';
+    expect(evaluateHostConfig(nginxAbsent(onlySsh), nginxRule).outcome).toBe('pass');
   });
 });
 

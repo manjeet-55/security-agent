@@ -4,6 +4,7 @@ import { distroOf } from '../../advisories/distro.js';
 import { cveIdsOf, fixedVersionFor, ubuntuPriority } from '../../advisories/osv.js';
 import type { Advisories, PackageQuery } from '../../advisories/types.js';
 import { aptListsEmpty, classifyOrigin } from '../../host/origin.js';
+import { describeDpkgState, isSettled, type InstalledPackage } from '../../host/parse.js';
 import { requirePackages, type HostSnapshot } from '../../host/snapshot.js';
 import { maxSeverity, SEVERITY_RANK, type Severity } from '../../types.js';
 import { compareDebVersions } from '../../util/debver.js';
@@ -26,6 +27,12 @@ export interface FixablePackage {
   advisories: Array<{ id: string; cves: string[]; fixed: string; severity: Severity; kev: boolean }>;
 }
 
+/** The installed packages whose source `distroSources` checks: positively distro, or any when origins can't be known at all. */
+function checkedPackages(snap: HostSnapshot, codename: string): InstalledPackage[] {
+  const listsEmpty = aptListsEmpty(snap.origins);
+  return snap.packages.filter((pkg) => listsEmpty || classifyOrigin(snap.origins[pkg.name], codename).kind === 'distro');
+}
+
 /**
  * Source packages to check against distro advisories, one per source at its lowest installed version
  * (the conservative choice: a lagging binary must not hide a pending fix).
@@ -33,10 +40,8 @@ export interface FixablePackage {
  * and origins can't be known at all.
  */
 export function distroSources(snap: HostSnapshot, codename: string): PackageQuery[] {
-  const listsEmpty = aptListsEmpty(snap.origins);
   const best = new Map<string, string>();
-  for (const pkg of snap.packages) {
-    if (!listsEmpty && classifyOrigin(snap.origins[pkg.name], codename).kind !== 'distro') continue;
+  for (const pkg of checkedPackages(snap, codename)) {
     const current = best.get(pkg.source);
     if (current === undefined || compareDebVersions(pkg.source_version, current) < 0) best.set(pkg.source, pkg.source_version);
   }
@@ -161,6 +166,16 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     const skipped = skippedSourceCount(snapshot, distro.codename);
     const { value: found, freshness: fresh } = await ctx.advisories.track(() => findFixable(ctx.advisories, distro.ecosystem, sources));
     const { fixable, unfixed, kev_available } = found;
+    if (fixable.length === 0) {
+      const unsettled = checkedPackages(snapshot, distro.codename).filter((pkg) => !isSettled(pkg));
+      if (unsettled.length > 0) {
+        const listed = unsettled.slice(0, 5).map((pkg) => `${pkg.name} ${describeDpkgState(pkg.state)}`);
+        throw new ObservationError(
+          'DPKG_STATE',
+          `${unsettled.length} checked package(s) are not fully installed, so "no fixes pending" cannot be shown: ${listed.join('; ')}${unsettled.length > 5 ? '; ...' : ''}. Run dpkg --configure -a on the host and collect again.`,
+        );
+      }
+    }
     const evidence_id = await ctx.evidence.put('advisory', name, `${sources.length} packages checked against ${distro.ecosystem}`, {
       ...base,
       ecosystem: distro.ecosystem,
