@@ -41,8 +41,8 @@ Run `secagent` again in the same folder to scan again, change the answers, or st
 | Area | Checks |
 |---|---|
 | Code | secrets in source files (keys, tokens, private keys, passwords in URLs), `.env`/key/credential files committed or one `git add .` away from it, secrets that were committed once and removed since (git history), npm dependencies with known vulnerabilities (`package-lock.json` against OSV) |
-| Websites and APIs | security headers, cookies, HTTP to HTTPS redirect, TLS versions and certificate, files that should not be served (`.env`, `.git`, source maps) |
-| Servers | SSH and nginx settings, listening database ports, pending security updates, packages with distro advisories (from the read-only collector's output) |
+| Websites and APIs | security headers, cookies, CORS, HTTP to HTTPS redirect, TLS versions and certificate, files that should not be served (`.env`, `.git`, source maps), DNS aliases pointing at names that no longer exist |
+| Servers | SSH and nginx settings, listening database ports, pending security updates, packages with distro advisories (from the read-only collector's output; `distro_mirrors` vouches for a private apt mirror), answering directly behind a load balancer |
 
 ## What the report says
 

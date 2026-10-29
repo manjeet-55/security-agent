@@ -10,7 +10,7 @@ Run `secagent` in a project folder. It:
 
 1. looks at the project (stack, git) and **asks for what it needs**: deployed URLs, environment, servers, where you are scanning from;
 2. shows what it will do and **asks for permission** before touching any website or server;
-3. scans **code** (secrets, `.env` and key files, git history, npm dependencies), **websites and APIs** (security headers, cookies, CORS, redirects, TLS, exposed files) and **servers** (SSH, nginx, packages against distro advisories, load-balancer bypass) with live progress;
+3. scans **code** (secrets, `.env` and key files, git history, npm dependencies), **websites and APIs** (security headers, cookies, CORS, redirects, TLS, exposed files, dangling DNS) and **servers** (SSH, nginx, packages against distro advisories, load-balancer bypass) with live progress;
 4. writes a **report anyone can read**, as Markdown, PDF and HTML: a verdict, what to fix first, and for each finding what was found, why it matters, how to fix it for your stack, and the evidence.
 
 An AI assistant (Claude Code, Cursor, any MCP client) can drive the same scan through `secagent mcp`. It explains and prioritises; secagent still decides every status.
@@ -31,7 +31,7 @@ TypeScript on Node 20+, three runtime dependencies besides the MCP SDK (`yaml`, 
 | Layer | Where | Does |
 |---|---|---|
 | Guided scan | `src/wizard/`, `src/ui/` | questions, consent, live progress, result screen; a small prompt layer on `node:readline` |
-| Engine | `src/scan/`, `src/checks/` | 13 check types, 32 seed checks as YAML (stack-specific fixes, plain-language "why"), run through a scope guard |
+| Engine | `src/scan/`, `src/checks/` | 14 check types, 33 seed checks as YAML (stack-specific fixes, plain-language "why"), run through a scope guard |
 | Code scanner | `src/code/` | secret patterns with entropy filter, `.env`/key hygiene, streamed git-history scan with limits |
 | Evidence and findings | `src/evidence/`, `src/findings/` | recorded observations, stable finding ids, diff between scans, accepted risks |
 | Report | `src/report/` | one block model, two renderers (Markdown, PDF) |

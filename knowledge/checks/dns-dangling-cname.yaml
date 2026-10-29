@@ -1,0 +1,12 @@
+id: dns-dangling-cname
+type: dns_dangling
+title: The site's DNS name does not point at a name that no longer exists
+why: 'When a DNS alias points at a cloud resource that was deleted, anyone can create a resource with that name and serve their own content on your domain.'
+severity: high
+applies_to: [web, api]
+params: {}
+fix_hints:
+  any: 'Remove the CNAME record, or point it at a resource you control; delete DNS records before deleting the cloud resources they point at.'
+source_url: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/10-Test_for_Subdomain_Takeover
+added_by: seed
+review: approved

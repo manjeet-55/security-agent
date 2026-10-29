@@ -1,6 +1,7 @@
 import type { AnyCheckType } from './check-type.js';
 import { codeDependenciesCheck } from './types/code-dependencies.js';
 import { codeSecretsCheck } from './types/code-secrets.js';
+import { dnsDanglingCheck } from './types/dns-dangling.js';
 import { exposedPathCheck } from './types/exposed-path.js';
 import { headerBudgetCheck } from './types/header-budget.js';
 import { hostConfigCheck } from './types/host-config.js';
@@ -26,6 +27,7 @@ const ALL: AnyCheckType[] = [
   tlsCheck,
   portExposureCheck,
   lbBypassCheck,
+  dnsDanglingCheck,
   codeSecretsCheck,
   codeDependenciesCheck,
 ];

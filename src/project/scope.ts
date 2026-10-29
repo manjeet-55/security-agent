@@ -56,6 +56,12 @@ export class Scope {
     return host;
   }
 
+  /** Throws unless the name is a listed target hostname or host address (no DNS involved). */
+  assertListed(hostname: string): void {
+    const h = normalise(hostname);
+    if (!this.entries.some((e) => e.hostname === h)) throw new ScopeError(`"${hostname}" is not in project.yaml (targets/hosts).`);
+  }
+
   async assertHostnameAllowed(hostname: string): Promise<string[]> {
     const h = normalise(hostname);
     const matches = this.entries.filter((e) => e.hostname === h);
