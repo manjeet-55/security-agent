@@ -46,6 +46,18 @@ describe('skippedSourceCount', () => {
   it('is zero when every package is from the distro', () => {
     expect(skippedSourceCount(fixtureSnapshot('ubuntu-24-04'), 'noble')).toBe(0);
   });
+
+  // The same predicate as the asserts: when origins can't be known (apt-cache policy failed, or the lists are empty) nothing is
+  // excluded and nothing is reported as skipped, even if the snapshot still carries some origin data.
+  it('skips nothing, and excludes nothing from distroSources, whenever originsProblem is set', () => {
+    const vendor = decodeSnapshot(withVendorOpenssh(fixtureEnvelope('ubuntu-24-04'), 'https://packagecloud.io/acme/openssh/ubuntu'));
+    expect(skippedSourceCount(vendor, 'noble')).toBe(3);
+    expect(distroSources(vendor, 'noble').some((s) => s.name === 'openssh')).toBe(false);
+    const failed = { ...vendor, origins_unavailable: true };
+    expect(skippedSourceCount(failed, 'noble')).toBe(0);
+    expect(distroSources(failed, 'noble').some((s) => s.name === 'openssh')).toBe(true);
+    expect(distroSources(failed, 'noble')).toHaveLength(new Set(failed.packages.map((p) => p.source)).size);
+  });
 });
 
 describe('host_package advisories freshness', () => {
@@ -67,11 +79,28 @@ describe('host_package advisories freshness', () => {
     expect(JSON.stringify(record)).toMatch(/"advisories_stale":false/);
   });
 
-  it('marks a pass STALE when the advisories came from an expired cached copy', async () => {
-    const { out, record } = await runWith(await staleAdvisories(await tempDir(), warm));
-    expect(out.outcome).toBe('pass');
-    expect(out.observed).toContain('; advisory data as of 2026-10-20, STALE (cached copy; source unreachable)');
-    expect(JSON.stringify(record)).toMatch(/"advisories_as_of":"2026-10-20T00:00:00.000Z","advisories_stale":true/);
+  it('is unverifiable, not a pass, when the advisories came from an expired cached copy', async () => {
+    const err = await runWith(await staleAdvisories(await tempDir(), warm)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ObservationError);
+    expect(err).toMatchObject({ code: 'ADVISORIES_STALE' });
+    expect((err as Error).message).toContain('advisory data as of 2026-10-20 is stale; run secagent learn');
+  });
+
+  it('is unverifiable, not a pass, when the advisory source cannot say how fresh its data is', async () => {
+    const advisories = fixtureAdvisories(await tempDir());
+    const blind = { ...advisories, track: async <T>(fn: () => Promise<T>) => ({ value: await fn(), freshness: undefined }) };
+    const err = await runWith(blind).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ObservationError);
+    expect(err).toMatchObject({ code: 'ADVISORIES_FRESHNESS_UNKNOWN' });
+  });
+
+  it('still fails a vulnerable package when freshness is unknown, without claiming an as-of date', async () => {
+    const old = decodeSnapshot(withSourceVersion(fixtureEnvelope('ubuntu-24-04'), 'openssh', '1:9.6p1-3ubuntu13'));
+    const advisories = fixtureAdvisories(await tempDir());
+    const blind = { ...advisories, track: async <T>(fn: () => Promise<T>) => ({ value: await fn(), freshness: undefined }) };
+    const { out } = await runWith(blind, old);
+    expect(out.outcome).toBe('fail');
+    expect(out.observed).not.toContain('advisory data as of');
   });
 
   it('marks a fail STALE too', async () => {
@@ -79,9 +108,10 @@ describe('host_package advisories freshness', () => {
     const warmOld = async (a: Awaited<ReturnType<typeof staleAdvisories>>) => {
       await findFixable(a, 'Ubuntu:24.04:LTS', distroSources(old, 'noble'));
     };
-    const { out } = await runWith(await staleAdvisories(await tempDir(), warmOld), old);
+    const { out, record } = await runWith(await staleAdvisories(await tempDir(), warmOld), old);
     expect(out.outcome).toBe('fail');
     expect(out.observed).toContain('as of 2026-10-20, STALE');
+    expect(JSON.stringify(record)).toMatch(/"advisories_as_of":"2026-10-20T00:00:00.000Z","advisories_stale":true/);
   });
 });
 
@@ -236,11 +266,22 @@ describe('host_package when apt-cache policy failed', () => {
     await expect(run(decodeSnapshot(missing), { assert: 'third_party' })).rejects.toMatchObject({ code: 'ORIGINS_UNAVAILABLE' });
   });
 
-  it('advisories still run but do not claim the packages are distro source packages', async () => {
-    const out = await run(failed(), { assert: 'advisories' });
-    expect(out.outcome).toBe('pass');
-    expect(out.observed).not.toContain('distro source packages');
-    expect(out.observed).toContain('apt-cache policy failed; origins cannot be determined');
+  it('advisories are unverifiable, not a pass, when the packages cannot be attributed to a repository', async () => {
+    const err = await run(failed(), { assert: 'advisories' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ObservationError);
+    expect(err).toMatchObject({ code: 'ORIGINS_UNAVAILABLE', message: 'apt-cache policy failed; origins cannot be determined' });
+  });
+
+  it('a vendor openssh build on a host whose apt-cache policy failed is unverifiable, not "no fixes pending"', async () => {
+    const vendor = withVendorOpenssh(env, 'https://packagecloud.io/acme/openssh/ubuntu');
+    const err = await run(decodeSnapshot(withSection(vendor, 'apt_policy', '', 100)), { assert: 'advisories' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ObservationError);
+    expect(err).toMatchObject({ code: 'ORIGINS_UNAVAILABLE' });
+  });
+
+  it('a missing apt_policy section makes advisories unverifiable too', async () => {
+    const missing = { ...env, sections: Object.fromEntries(Object.entries(env.sections).filter(([k]) => k !== 'apt_policy')) };
+    await expect(run(decodeSnapshot(missing), { assert: 'advisories' })).rejects.toMatchObject({ code: 'ORIGINS_UNAVAILABLE' });
   });
 
   it('advisories still fail a vulnerable package, and say origins could not be determined', async () => {
@@ -250,10 +291,18 @@ describe('host_package when apt-cache policy failed', () => {
     expect(out.observed).toContain('apt-cache policy failed; origins cannot be determined');
   });
 
-  it('empty apt lists (policy succeeded) get the same honest wording', async () => {
-    const policy = sectionOf(env, 'apt_policy').replace(/^ {8}\d+ http\S*.*$/gm, '');
-    const out = await run(decodeSnapshot(withSection(env, 'apt_policy', policy)), { assert: 'advisories' });
-    expect(out.observed).not.toContain('distro source packages');
+  const emptyLists = (e = env) => decodeSnapshot(withSection(e, 'apt_policy', sectionOf(e, 'apt_policy').replace(/^ {8}\d+ http\S*.*$/gm, '')));
+
+  it('empty apt lists (policy succeeded) make advisories unverifiable, with the apt-get update advice', async () => {
+    const err = await run(emptyLists(), { assert: 'advisories' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ObservationError);
+    expect(err).toMatchObject({ code: 'APT_LISTS_EMPTY' });
+    expect((err as Error).message).toContain('apt-get update');
+  });
+
+  it('empty apt lists still fail a vulnerable package, with the honest wording', async () => {
+    const out = await run(emptyLists(withSourceVersion(env, 'openssh', '1:9.6p1-3ubuntu13')), { assert: 'advisories' });
+    expect(out.outcome).toBe('fail');
     expect(out.observed).toContain('apt package lists are empty');
   });
 

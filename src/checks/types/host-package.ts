@@ -19,6 +19,9 @@ export const hostPackageParams = z.discriminatedUnion('assert', [
 ]);
 export type HostPackageParams = z.infer<typeof hostPackageParams>;
 
+const APT_LISTS_EMPTY_MESSAGE =
+  'apt package lists are empty on this host (cleaned or never fetched), so package origins cannot be determined. Run "apt-get update" before the collector.';
+
 const PRIORITY: Record<string, Severity> = { critical: 'critical', high: 'high', medium: 'medium', low: 'low', negligible: 'info' };
 
 export interface FixablePackage {
@@ -27,17 +30,17 @@ export interface FixablePackage {
   advisories: Array<{ id: string; cves: string[]; fixed: string; severity: Severity; kev: boolean }>;
 }
 
-/** The installed packages whose source `distroSources` checks: positively distro, or any when origins can't be known at all. */
+/** The installed packages whose source `distroSources` checks: positively distro, or any when origins can't be known at all (`originsProblem`). */
 function checkedPackages(snap: HostSnapshot, codename: string): InstalledPackage[] {
-  const listsEmpty = aptListsEmpty(snap.origins);
-  return snap.packages.filter((pkg) => listsEmpty || classifyOrigin(snap.origins[pkg.name], codename).kind === 'distro');
+  const originsUnknown = originsProblem(snap) !== undefined;
+  return snap.packages.filter((pkg) => originsUnknown || classifyOrigin(snap.origins[pkg.name], codename).kind === 'distro');
 }
 
 /**
  * Source packages to check against distro advisories, one per source at its lowest installed version
  * (the conservative choice: a lagging binary must not hide a pending fix).
- * Anything not positively identified as distro (third-party, local, origin unknown) is skipped, unless apt lists are empty
- * and origins can't be known at all.
+ * Anything not positively identified as distro (third-party, local, origin unknown) is skipped, unless origins can't be known at
+ * all (`originsProblem`: apt-cache policy failed, or the apt lists are empty).
  */
 export function distroSources(snap: HostSnapshot, codename: string): PackageQuery[] {
   const best = new Map<string, string>();
@@ -50,7 +53,7 @@ export function distroSources(snap: HostSnapshot, codename: string): PackageQuer
 
 /** How many distinct packages `distroSources` leaves out because they are not positively identified as distro (third-party, local, origin unknown). */
 export function skippedSourceCount(snap: HostSnapshot, codename: string): number {
-  if (aptListsEmpty(snap.origins)) return 0;
+  if (originsProblem(snap) !== undefined) return 0;
   const skipped = new Set<string>();
   for (const pkg of snap.packages) {
     if (classifyOrigin(snap.origins[pkg.name], codename).kind !== 'distro') skipped.add(pkg.name);
@@ -121,12 +124,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     if (p.assert === 'third_party') {
       requirePackages(snapshot);
       if (snapshot.origins_unavailable) throw new ObservationError('ORIGINS_UNAVAILABLE', ORIGINS_UNAVAILABLE_MESSAGE);
-      if (aptListsEmpty(snapshot.origins)) {
-        throw new ObservationError(
-          'APT_LISTS_EMPTY',
-          'apt package lists are empty on this host (cleaned or never fetched), so package origins cannot be determined. Run "apt-get update" before the collector.',
-        );
-      }
+      if (aptListsEmpty(snapshot.origins)) throw new ObservationError('APT_LISTS_EMPTY', APT_LISTS_EMPTY_MESSAGE);
       const seen = new Set<string>();
       const items: Array<{ package: string; version: string; origin: string }> = [];
       for (const pkg of snapshot.packages) {
@@ -167,7 +165,18 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
     const skipped = skippedSourceCount(snapshot, distro.codename);
     const { value: found, freshness: fresh } = await ctx.advisories.track(() => findFixable(ctx.advisories, distro.ecosystem, sources));
     const { fixable, unfixed, kev_available } = found;
+    const problem = originsProblem(snapshot);
     if (fixable.length === 0) {
+      // "No fixes pending" is only a finding when the packages were attributed to a repository and the advisory data is known to be
+      // current; otherwise nothing was shown to be fine. A `fail` above stands either way.
+      if (problem === 'failed') throw new ObservationError('ORIGINS_UNAVAILABLE', ORIGINS_UNAVAILABLE_MESSAGE);
+      if (problem === 'empty') throw new ObservationError('APT_LISTS_EMPTY', APT_LISTS_EMPTY_MESSAGE);
+      if (fresh === undefined) {
+        throw new ObservationError('ADVISORIES_FRESHNESS_UNKNOWN', 'the advisory source could not say how fresh its data is, so "no fixes pending" cannot be shown');
+      }
+      if (fresh.stale) {
+        throw new ObservationError('ADVISORIES_STALE', `advisory data as of ${fresh.as_of.slice(0, 10)} is stale; run secagent learn to refresh it`);
+      }
       const unsettled = checkedPackages(snapshot, distro.codename).filter((pkg) => !isSettled(pkg));
       if (unsettled.length > 0) {
         const listed = unsettled.slice(0, 5).map((pkg) => `${pkg.name} ${describeDpkgState(pkg.state)}`);
@@ -188,7 +197,6 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
       ...(fresh ? { advisories_as_of: fresh.as_of, advisories_stale: fresh.stale } : {}),
     });
     const asOfNote = fresh ? `; advisory data as of ${fresh.as_of.slice(0, 10)}${fresh.stale ? ', STALE (cached copy; source unreachable)' : ''}` : '';
-    const problem = originsProblem(snapshot);
     const originsNote =
       problem === undefined
         ? ''
@@ -199,7 +207,7 @@ export const hostPackageCheck: CheckType<HostPackageParams> = {
       const unfixedNote = unfixed > 0 ? `; ${unfixed} advisories have no released fix yet` : '';
       return {
         outcome: 'pass',
-        observed: `${sources.length} ${problem === undefined ? 'distro source' : 'source'} packages checked against ${distro.ecosystem} advisories; no security fixes pending${unfixedNote}${originsNote}${kevNote}${skippedNote}${asOfNote}`,
+        observed: `${sources.length} distro source packages checked against ${distro.ecosystem} advisories; no security fixes pending${unfixedNote}${kevNote}${skippedNote}${asOfNote}`,
         evidence_id,
       };
     }

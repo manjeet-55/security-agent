@@ -138,20 +138,23 @@ describe('concurrent host_package and verify_claim keep their own freshness', ()
     const shared = createAdvisories({ cacheDir: dir, fetchJson: offline, now: () => runAt });
     const { ctx } = await makeCtx({}, {}, { snapshots: readerFor(S), advisories: shared });
     ctx.now = () => runAt;
-    const pkg = hostPackageCheck.run(ctx, hostSubject(ctx), hostPackageCheck.params.parse({ assert: 'advisories' }), {} as never);
+    const pkg = hostPackageCheck
+      .run(ctx, hostSubject(ctx), hostPackageCheck.params.parse({ assert: 'advisories' }), {} as never)
+      .then(() => 'no error', (e: unknown) => e as Error);
     await sleep(delayMs);
     const claim = verifyClaim(
       { host, snapshots: readerFor(F), advisories: shared, evidence: new EvidenceStore(await tempDir(), 't'), now: () => runAt },
       { cve: 'CVE-2021-41617' },
     );
     const [p, c] = await Promise.all([pkg, claim]);
-    return { observed: p.observed, claim: c };
+    return { stale: p, claim: c };
   }
 
-  it('the stale host_package result stays STALE and the fresh claim stays fresh over 20 randomised staggers', async () => {
+  it('the stale host_package result stays stale and the fresh claim stays fresh over 20 randomised staggers', async () => {
     for (const delay of staggers(20)) {
-      const { observed, claim } = await once(delay);
-      expect(observed, `stagger ${delay}`).toContain('advisory data as of 2026-10-20, STALE');
+      const { stale, claim } = await once(delay);
+      expect(stale, `stagger ${delay}`).toMatchObject({ code: 'ADVISORIES_STALE' });
+      expect((stale as Error).message, `stagger ${delay}`).toContain('advisory data as of 2026-10-20 is stale');
       expect(claim.stale, `stagger ${delay}`).toBe(false);
       expect(claim.verdict, `stagger ${delay}`).toBe('not_affected');
       expect(Date.parse(claim.as_of as string), `stagger ${delay}`).toBeGreaterThan(Date.parse('2026-10-24T00:00:00Z'));
