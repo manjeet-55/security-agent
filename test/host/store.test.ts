@@ -18,6 +18,20 @@ describe('SnapshotStore', () => {
     expect((await store.latest('web-1'))?.snapshot.collected_at).toBe('2026-10-28T14:31:46Z');
   });
 
+  it('orders snapshots by the time they name, not by their text: fractional seconds sort before the bare Z as strings', async () => {
+    const store = new SnapshotStore(await tempDir(), () => FIXED_NOW);
+    // As strings '...14:31:46Z' > '...14:31:46.500Z' ('Z' sorts after '.'), but the second is half a second later.
+    const whole = { ...fixtureEnvelope('ubuntu-24-04'), collected_at: '2026-10-28T14:31:46Z' };
+    const fractional = { ...fixtureEnvelope('ubuntu-24-04'), collected_at: '2026-10-28T14:31:46.500Z' };
+    await store.add('web-1', JSON.stringify(whole));
+    await store.add('web-1', JSON.stringify(fractional));
+    expect((await store.latest('web-1'))?.snapshot.collected_at).toBe('2026-10-28T14:31:46.500Z');
+    const other = new SnapshotStore(await tempDir(), () => FIXED_NOW);
+    await other.add('web-1', JSON.stringify(fractional));
+    await other.add('web-1', JSON.stringify(whole));
+    expect((await other.latest('web-1'))?.snapshot.collected_at).toBe('2026-10-28T14:31:46.500Z');
+  });
+
   it('rejects non-JSON, non-snapshots and bad host names', async () => {
     const store = new SnapshotStore(await tempDir(), () => FIXED_NOW);
     await expect(store.add('web-1', 'not json')).rejects.toBeInstanceOf(ObservationError);

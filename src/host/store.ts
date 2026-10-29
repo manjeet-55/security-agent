@@ -78,8 +78,10 @@ export class SnapshotStore implements SnapshotReader {
       const file = path.join(this.dir, host, name);
       try {
         const snapshot = decodeSnapshot(JSON.parse(await readFile(file, 'utf8')));
-        if (Date.parse(snapshot.collected_at) - now > MAX_FUTURE_SKEW_MS) future.push({ file, collected_at: snapshot.collected_at });
-        else if (!best || snapshot.collected_at > best.snapshot.collected_at) best = { snapshot, file };
+        const at = Date.parse(snapshot.collected_at);
+        if (at - now > MAX_FUTURE_SKEW_MS) future.push({ file, collected_at: snapshot.collected_at });
+        // By time, not by text: '...:46Z' sorts after '...:46.500Z' as a string although it is earlier.
+        else if (!best || at > Date.parse(best.snapshot.collected_at)) best = { snapshot, file };
       } catch {
         // Unreadable or invalid snapshot files are ignored; `snapshot add` validates new ones.
       }

@@ -11,6 +11,27 @@ const DISTRO_HOST = /(^|\.)(ubuntu\.com|debian\.org)$/;
 
 type RepoKind = 'distro' | 'unknown' | 'third_party';
 
+const HOST_AND_PORT = /^([a-z0-9.-]+)(:\d+)?$/;
+
+/**
+ * The host of an apt source URL, read literally: the text between `://` and the next `/`, without any userinfo (up to the last
+ * `@`), lowercased, with one trailing `.` (the absolute form of a name) dropped. `undefined` when that text is not a plain
+ * host name with an optional port. A URL parser is deliberately not used: the WHATWG one reads a backslash as a slash, so
+ * `http://archive.ubuntu.com\.evil.example/` would pass for archive.ubuntu.com although apt does not fetch from there.
+ */
+function repoHost(url: string): string | undefined {
+  const start = url.indexOf('://');
+  if (start < 0) return undefined;
+  let authority = url.slice(start + 3);
+  const end = authority.indexOf('/');
+  if (end >= 0) authority = authority.slice(0, end);
+  if (authority.includes('\\')) return undefined;
+  authority = authority.slice(authority.lastIndexOf('@') + 1).toLowerCase();
+  const host = HOST_AND_PORT.exec(authority)?.[1];
+  if (host === undefined) return undefined;
+  return host.endsWith('.') ? host.slice(0, -1) : host;
+}
+
 /**
  * Classifies one apt source line ("<url> <suite>/<component> <arch> Packages").
  *
@@ -19,19 +40,15 @@ type RepoKind = 'distro' | 'unknown' | 'third_party';
  * - `unknown`: the suite and component look like a distro's but the host is not a distro host. That is a third-party mirror
  *   or a vendor repo that reuses the codename and `main` (packagecloud, cloudsmith, mariadb, packages.sury.org, ...);
  *   a path ending in `/ubuntu` or `/debian` proves nothing, so no path is accepted. Treated as unverifiable until a
- *   trusted-mirror allowlist exists.
+ *   trusted-mirror allowlist exists. A URL whose host cannot be read as a plain host name (`repoHost`) is also `unknown`.
  * - `third_party`: anything else (a different suite or component such as nginx.org `noble/nginx`, docker `noble/stable`,
  *   and PPAs on launchpad).
  */
 function repoKind(source: string, codename: string): RepoKind {
   const [url = '', suiteComponent = ''] = source.split(/\s+/);
   const [suite = '', component = ''] = suiteComponent.split('/');
-  let host: string;
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    return 'unknown';
-  }
+  const host = repoHost(url);
+  if (host === undefined) return 'unknown';
   const distroLooking = codename !== '' && (suite === codename || suite.startsWith(`${codename}-`)) && DISTRO_COMPONENTS.has(component);
   if (!distroLooking || host.includes('launchpad')) return 'third_party';
   return DISTRO_HOST.test(host) ? 'distro' : 'unknown';

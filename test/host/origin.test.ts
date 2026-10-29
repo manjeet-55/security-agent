@@ -59,6 +59,38 @@ describe('classifyOrigin', () => {
     expect(classifyOrigin(o(source), 'noble')).toEqual({ kind: 'unknown', repo: source });
   });
 
+  // The WHATWG URL parser treats a backslash as a slash, so new URL() reads the host of http://archive.ubuntu.com\.evil.attacker.example/ubuntu
+  // as archive.ubuntu.com. apt does not read it that way, so the host is taken literally and anything odd is not a distro.
+  it.each([
+    String.raw`http://archive.ubuntu.com\.evil.attacker.example/ubuntu noble/main amd64 Packages`,
+    String.raw`http://archive.ubuntu.com\@evil.example/ubuntu noble/main amd64 Packages`,
+    String.raw`http://evil.example\@archive.ubuntu.com/ubuntu noble/main amd64 Packages`,
+    'http://archive.ubuntu.com..evil.example/ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com../ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com?x=1/ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com#frag/ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com%2eevil.example/ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com:abc/ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com:80@evil.example/ubuntu noble/main amd64 Packages',
+    'http://[::1]/ubuntu noble/main amd64 Packages',
+    'http:///ubuntu noble/main amd64 Packages',
+    'archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+  ])('the odd host in %s is origin unknown, not distro', (source) => {
+    expect(classifyOrigin(o(source), 'noble')).toEqual({ kind: 'unknown', repo: source });
+  });
+
+  it.each([
+    'http://archive.ubuntu.com./ubuntu noble/main amd64 Packages',
+    'http://Archive.Ubuntu.COM/ubuntu noble/main amd64 Packages',
+    'HTTP://archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com:80/ubuntu noble/main amd64 Packages',
+    'http://archive.ubuntu.com.:80/ubuntu noble/main amd64 Packages',
+    'http://user:pw@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+    'http://evil.example@archive.ubuntu.com/ubuntu noble/main amd64 Packages',
+  ])('%s is a distro repository', (source) => {
+    expect(classifyOrigin(o(source), 'noble')).toEqual({ kind: 'distro', repo: source });
+  });
+
   it('a repository on a distro host with a non-distro suite is third-party, not distro', () => {
     expect(classifyOrigin(o('http://archive.ubuntu.com/ubuntu stable/main amd64 Packages'), 'noble').kind).toBe('third_party');
     expect(classifyOrigin(o('http://archive.ubuntu.com/ubuntu noble/partner amd64 Packages'), 'noble').kind).toBe('third_party');
