@@ -13,6 +13,7 @@ import { ObservationError } from './checks/errors.js';
 import { distroSources } from './checks/types/host-package.js';
 import { EvidenceStore } from './evidence/store.js';
 import { resultKey } from './findings/ids.js';
+import { FindingsStore } from './findings/store.js';
 import type { ScanRecord } from './findings/schema.js';
 import { makeCollector } from './host/collector.js';
 import { SnapshotStore } from './host/store.js';
@@ -29,6 +30,7 @@ import { doctor } from './doctor.js';
 import { evaluate, EvalError } from './eval.js';
 import { acceptRisk } from './kb/accept.js';
 import { approveLesson, pendingLessons, rejectLesson } from './kb/write.js';
+import { loadShippedChecklists, renderChecklist, selectAreas } from './kb/checklist.js';
 import { renderIndex } from './kb/index-md.js';
 import { KbError } from './kb/lesson.js';
 import { loadLessons } from './kb/store.js';
@@ -76,6 +78,8 @@ Commands:
             --dir <path>
   accept     Accept the risk of an open finding until a date (a person's decision; the next scan reports it as accepted)
             <finding-id>   --owner <name>   --reason <text>   --until <YYYY-MM-DD>   --dir <path>
+  checklist  Print the security review checklist: what to check in the code and configuration that the scan cannot decide
+            --dir <path>   --area <surface|auth|input|secrets|infra> (repeatable)   --out <file>
   eval       Compare the latest scan with an expected-results file; exit 1 on any difference
             <expected.yaml>   --dir <path>
   kb review  List lessons an AI assistant proposed; approve or reject one
@@ -270,10 +274,30 @@ async function runKbReview(args: string[], deps: CliDeps): Promise<number> {
 async function runKb(args: string[], deps: CliDeps): Promise<number> {
   if (args[0] === 'review') return runKbReview(args.slice(1), deps);
   if (args.length !== 1 || args[0] !== 'index') throw new UsageError('Usage: secagent kb index | secagent kb review');
-  const text = renderIndex(await loadLessons({ global: GLOBAL_LESSONS_DIR }), await loadCheckInstances(GLOBAL_CHECKS_DIR, CHECK_TYPES));
+  const checks = await loadCheckInstances(GLOBAL_CHECKS_DIR, CHECK_TYPES);
+  const text = renderIndex(await loadLessons({ global: GLOBAL_LESSONS_DIR }), checks, await loadShippedChecklists(checks));
   const file = path.join(GLOBAL_KNOWLEDGE_DIR, 'INDEX.md');
   await writeFile(file, text, 'utf8');
   console.log(`Wrote ${file}`);
+  return 0;
+}
+
+/** The review checklist as Markdown, with the latest scan's outcomes for its automated items. */
+async function runChecklist(args: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    strict: true,
+    options: { dir: { type: 'string', default: '.' }, area: { type: 'string', multiple: true }, out: { type: 'string' } },
+  });
+  const areas = (values.area ?? []).flatMap((a) => a.split(',')).map((a) => a.trim()).filter(Boolean);
+  const lists = selectAreas(await loadShippedChecklists(await loadCheckInstances(GLOBAL_CHECKS_DIR, CHECK_TYPES)), areas);
+  const text = renderChecklist(lists, await new FindingsStore(path.resolve(values.dir)).latest());
+  if (!values.out) {
+    console.log(text.trimEnd());
+    return 0;
+  }
+  await writeFile(path.resolve(values.out), text, 'utf8');
+  console.log(`Wrote ${values.out}: ${lists.reduce((n, l) => n + l.items.length, 0)} item(s) in ${lists.length} area(s). Work through it by hand or give it to an AI assistant that can read the code.`);
   return 0;
 }
 
@@ -499,6 +523,8 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
         return await runDoctor(rest, deps);
       case 'eval':
         return await runEval(rest);
+      case 'checklist':
+        return await runChecklist(rest);
       case undefined:
         if (isTerminal(deps)) return await runStart(rest, deps);
         console.log(USAGE);

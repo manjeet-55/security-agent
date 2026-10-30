@@ -1,0 +1,136 @@
+area: surface
+title: Public surface and APIs
+order: 1
+items:
+  - id: surface-auth-by-default
+    title: Every route that returns or changes data requires login, or is deliberately public
+    severity: high
+    applies_if: The project serves an API, server actions or server-rendered pages with user data
+    why: Attackers list every route (from the frontend bundle, API docs or guessing) and call each one without logging in. One route nobody guarded is a data leak or a way to change data as anyone.
+    look_for:
+      - 'List every route. Express: app.get/post/put/delete, router.*, app.use(path, router). NestJS: @Controller with @Get/@Post. Next.js: app/**/route.ts, pages/api/**, "use server" actions. FastAPI/Flask/Django: @router.get, @app.route, urls.py. Spring: @GetMapping/@PostMapping.'
+      - 'For each route, find the guard that runs before the handler: passport.authenticate, a requireAuth middleware, @UseGuards / a global APP_GUARD, getServerSession / auth() in Next.js, Depends(get_current_user), @login_required, Spring Security config.'
+      - Check the order in which middleware is mounted. A router registered before the auth middleware is not protected by it.
+    fail_if: A route that returns user or business data, or changes state, has no guard and is not on a written list of intentionally public routes.
+    pass_if: Every route is guarded, or is on a short written list of public routes (login, sign-up, health check, public content) that was reviewed.
+    evidence: A table of route, guard and file:line, plus the list of intentionally public routes.
+    fix: Make authentication the default (a global guard or middleware mounted before all routers) and mark public routes explicitly, so a new route is protected unless someone opts it out.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
+
+  - id: surface-object-ownership
+    title: Every lookup by id checks that the record belongs to the caller
+    severity: high
+    applies_if: Routes take a record id (path, query or body) and return or change that record
+    why: The most common API breach. A logged-in attacker changes /orders/1001 to /orders/1002 and reads or edits someone else's data (IDOR / broken object level authorization).
+    look_for:
+      - 'Handlers that read an id from the request: req.params.id, @Param(''id''), params.id in Next.js, path parameters in FastAPI/Spring.'
+      - 'The query that follows. findById(id), findOne({ _id: id }), WHERE id = ? with no user or tenant condition is the pattern to flag.'
+      - Bulk and nested routes too (/users/:userId/invoices, exports, file downloads by key).
+    fail_if: A record is fetched, changed or deleted by id alone, with no check that its owner, organisation or tenant matches the logged-in user.
+    pass_if: Every such query includes the owner or tenant (WHERE id = ? AND user_id = ?), or an explicit authorization check runs before the record is returned.
+    evidence: file:line of each id-based query and of the ownership condition or check next to it.
+    fix: Scope queries to the caller (repository methods that always take the user or tenant), or add a policy check; prefer random ids (UUIDs) as extra friction, never as the protection.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/
+
+  - id: surface-function-level-authz
+    title: Admin and privileged actions check the role on the server
+    severity: high
+    applies_if: The project has roles (admin, staff, owner) or internal actions
+    why: Hiding the admin button in the frontend does not stop anyone calling the admin API directly. Attackers try /admin, /internal and PUT/DELETE on routes that normal users can only GET.
+    look_for:
+      - 'Routes under /admin, /internal, /manage, /staff, and handlers that delete, export, impersonate or change roles.'
+      - 'Where the role check happens. Server-side: @Roles with a RolesGuard, a requireRole middleware, a policy library (CASL, casbin). Client-side only: hidden buttons or route guards in React/Angular/Vue.'
+      - 'Whether the role comes from a trusted source (server session, verified token claims) rather than from the request body or a cookie the client can edit.'
+    fail_if: A privileged action relies only on the frontend, or reads the role from data the client controls.
+    pass_if: Every privileged route has a server-side role or permission check, with roles taken from the verified session or token.
+    evidence: file:line of each privileged route and its server-side check.
+    fix: Deny by default, and check permissions per action on the server (a guard or policy for each privileged route); test with a normal user's token.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/
+
+  - id: surface-response-fields
+    title: Responses return only the fields the client needs
+    severity: medium
+    applies_if: The API returns database records
+    why: Returning whole database rows leaks password hashes, tokens, emails, internal flags and other users' details, even when the frontend never shows them. Anyone can read the raw response.
+    look_for:
+      - 'Handlers that return ORM entities or rows directly: res.json(user), return await repo.find(), SELECT * results, Mongoose documents without .select() or toJSON transforms.'
+      - 'Serializers and DTOs: class-transformer @Exclude / ClassSerializerInterceptor, Django REST serializers with fields = "__all__", Prisma select.'
+      - Sensitive columns (password, password_hash, reset_token, mfa_secret, is_admin, internal notes, other users' emails) and whether any route can return them.
+    fail_if: A response can include a sensitive field, or a list endpoint returns full records of other users.
+    pass_if: Each response is built from an explicit allowlist of fields (DTO, serializer, select), and sensitive columns never leave the server.
+    evidence: file:line of the response shaping for the main entities (user, account, order), and a sample response with fields listed.
+    fix: Map entities to response DTOs with an explicit field list; exclude secrets at the model level as a safety net.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/
+
+  - id: surface-rate-limits
+    title: Requests are limited per client, and list and upload sizes are capped
+    severity: medium
+    why: Without limits, one script can scrape all your data, run up the bill (SMS, email, AI calls, storage) or take the service down.
+    look_for:
+      - 'Rate limiting in the app (express-rate-limit, @nestjs/throttler, slowapi, Django REST throttling, Spring bucket4j) or at the edge (nginx limit_req, API gateway throttling, Cloudflare/AWS WAF rate rules).'
+      - 'Page size: a limit or pageSize parameter without a maximum, or list endpoints that return everything.'
+      - 'Body and upload limits: express.json({ limit }), multer limits, nginx client_max_body_size, timeouts on expensive queries.'
+    fail_if: Public or authenticated endpoints have no rate limit anywhere in the path, or a client can request unbounded page sizes or uploads.
+    pass_if: A rate limit applies to every public endpoint (stricter on expensive ones), page sizes have a maximum, and bodies and uploads have size limits.
+    evidence: The limiter configuration (file:line or edge config) and the maximum page and body sizes.
+    fix: Add a global limiter with stricter limits on login, search, export and anything that costs money; cap page sizes on the server.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
+
+  - id: surface-docs-and-debug
+    title: API docs, GraphQL introspection, debug and management endpoints are off or protected in production
+    severity: medium
+    why: Swagger pages and GraphQL introspection hand attackers a map of every endpoint and field. Debug consoles and management endpoints (Spring Actuator, Django debug pages, queue dashboards) can leak secrets or give code execution.
+    look_for:
+      - 'API docs: SwaggerModule.setup, swagger-ui-express, springdoc, FastAPI docs_url / openapi_url, Redoc; are they enabled when NODE_ENV or the profile is production?'
+      - 'GraphQL: introspection, playground or graphiql options in Apollo, Yoga, graphene, gqlgen for production.'
+      - 'Management and admin UIs: Spring management.endpoints.web.exposure.include, /actuator, bull-board, Sidekiq/Flower dashboards, phpMyAdmin, Adminer, Django admin, server-status.'
+    fail_if: Docs, introspection or a management UI is reachable in production without login, unless the API is public by design and the docs are meant for customers.
+    pass_if: They are disabled in production, or behind authentication and an IP allowlist.
+    evidence: The configuration that switches each one off or protects it in production (file:line).
+    fix: Enable docs and introspection only outside production, and move admin and management UIs behind SSO or a VPN.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
+    automated_by: [exposed-paths]
+
+  - id: surface-inventory
+    title: Old API versions, test routes and non-production environments are not publicly reachable
+    severity: medium
+    why: Attackers look for the forgotten copy, such as /v1 still running without the fixes of /v2, a staging site with a test database of real users, a debug or seed route left in, or preview deployments open to everyone.
+    look_for:
+      - 'Routes for old versions (/v1 next to /v2), and routes named test, debug, mock, seed, reset, dev or demo.'
+      - 'Staging, dev and preview URLs in configuration, CI and DNS (staging.*, dev.*, *.vercel.app previews, *.herokuapp.com), and whether they require login.'
+      - Whether non-production environments hold copies of production data.
+    fail_if: An old API version, a test route or a non-production environment with real data is reachable from the internet without protection.
+    pass_if: There is a written list of deployed environments and API versions, old ones are retired, and non-production is behind login or an allowlist with no production data.
+    evidence: The list of environments and versions, and how each non-production one is protected.
+    fix: Retire old versions on a date, remove test routes from production builds, protect previews and staging (SSO, basic auth, IP allowlist), and use fake data outside production.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xa9-improper-inventory-management/
+
+  - id: surface-csrf
+    title: State-changing requests authenticated by cookies are protected against cross-site request forgery
+    severity: medium
+    applies_if: The app authenticates browsers with cookies (sessions or a token in a cookie)
+    why: If the browser sends the session cookie automatically, another website can make a logged-in user submit a form or request to your site (change email, transfer, delete) without them knowing.
+    look_for:
+      - 'How the browser authenticates: a session or token cookie (CSRF applies) or an Authorization header set by JavaScript (mostly does not).'
+      - 'CSRF defences: SameSite=Lax or Strict on the session cookie, CSRF tokens (csrf-csrf, Django CsrfViewMiddleware, Rails protect_from_forgery, Spring Security csrf), checks of the Origin header.'
+      - 'GET routes that change state (GET /logout is fine; GET /delete?id= is not).'
+    fail_if: A cookie-authenticated POST, PUT, PATCH or DELETE route has no CSRF defence, or a GET route changes state.
+    pass_if: Session cookies use SameSite=Lax or Strict and state-changing routes use a CSRF token or Origin check; no GET changes state.
+    evidence: Cookie settings and the CSRF middleware (file:line).
+    fix: Set SameSite on session cookies and add the framework's CSRF protection to state-changing routes.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html
+    automated_by: [cookie-flags]
+
+  - id: surface-business-flows
+    title: Flows that cost money or can be abused have abuse limits
+    severity: medium
+    applies_if: The app has sign-up, SMS or email sending, coupons, referrals, checkout, voting or AI calls
+    why: Attackers automate the flow itself rather than breaking it, creating fake accounts, triggering SMS to premium numbers, reusing coupons, or burning your AI budget.
+    look_for:
+      - 'Endpoints that send SMS or email (OTP, invite, share), create accounts, redeem coupons or referrals, or call paid APIs.'
+      - 'Per-user and per-IP limits, CAPTCHA or bot protection, and checks that a coupon or referral can be used once.'
+    fail_if: One client can repeat an expensive or valuable action without a limit.
+    pass_if: Each such flow has a limit per user, per IP and per target (phone number, email), and single-use rules are enforced on the server.
+    evidence: The limit or check for each flow (file:line).
+    fix: Add per-flow limits and bot protection, enforce single use in the database, and alert on unusual volume.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xa6-unrestricted-access-to-sensitive-business-flows/

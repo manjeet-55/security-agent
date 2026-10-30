@@ -7,6 +7,7 @@ export const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 export const GLOBAL_KNOWLEDGE_DIR = path.join(PACKAGE_ROOT, 'knowledge');
 export const GLOBAL_CHECKS_DIR = path.join(GLOBAL_KNOWLEDGE_DIR, 'checks');
 export const GLOBAL_LESSONS_DIR = path.join(GLOBAL_KNOWLEDGE_DIR, 'lessons');
+export const GLOBAL_CHECKLISTS_DIR = path.join(GLOBAL_KNOWLEDGE_DIR, 'checklists');
 
 export const SECAGENT_DIRNAME = '.secagent';
 

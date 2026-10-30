@@ -1,10 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { FindingsStore } from '../../findings/store.js';
+import { loadShippedChecklists, renderChecklist, selectAreas } from '../../kb/checklist.js';
 import { fetchSource } from '../../kb/sources.js';
 import { kbRead, kbSearch, loadKnowledge } from '../../kb/store.js';
 import { writeLesson } from '../../kb/write.js';
 import { triageFinding } from '../../findings/triage.js';
-import { guarded, jsonResult } from '../result.js';
+import { guarded, jsonResult, textResult } from '../result.js';
 import type { ServerState } from '../state.js';
 
 export function registerKbTools(server: McpServer, state: ServerState): void {
@@ -28,6 +30,21 @@ export function registerKbTools(server: McpServer, state: ServerState): void {
       annotations: { readOnlyHint: true },
     },
     ({ id }) => guarded(async () => jsonResult(await kbRead(await loadKnowledge(state.dir, await state.instances()), id, state.dir))),
+  );
+
+  server.registerTool(
+    'get_checklist',
+    {
+      description:
+        'The security review checklist: rules for what the scan cannot decide (route authorization, input handling, secrets in config, cloud, containers and CI). For each item that applies, read the code and configuration with your own tools and answer pass, fail or unknown with file:line evidence. Present the answers as your assessment, never as secagent results, and never change a finding because of them. Items marked Automated show the latest scan outcome of the checks that cover them in part.',
+      inputSchema: { areas: z.array(z.string().min(1)).optional().describe('Areas to include, in this order (surface, auth, input, secrets, infra); default all') },
+      annotations: { readOnlyHint: true },
+    },
+    ({ areas }) =>
+      guarded(async () => {
+        const lists = selectAreas(await loadShippedChecklists(await state.instances()), areas ?? []);
+        return textResult(renderChecklist(lists, await new FindingsStore(state.dir).latest()));
+      }),
   );
 
   server.registerTool(
