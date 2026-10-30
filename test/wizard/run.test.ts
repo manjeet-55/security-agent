@@ -45,6 +45,7 @@ describe('runWizard', () => {
 
     const out = text();
     expect(out).toContain('Code');
+    expect(out).toContain("I'm running 5 checks on your code.");
     expect(out).toMatch(/✗ \d+\/5 +No secrets in the project's source files/);
     expect(out).toContain('Needs attention: 2 high-priority issue(s)');
     expect(out).toContain(path.join(reportsDir(dir), 'latest.md'));

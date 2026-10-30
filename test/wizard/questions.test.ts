@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateProject, type ProjectConfig } from '../../src/project/schema.js';
-import { askPlan, targetIdFor, type AskDeps } from '../../src/wizard/questions.js';
+import { askPlan, collectorSteps, targetIdFor, type AskDeps } from '../../src/wizard/questions.js';
 import { ScriptedPrompter } from '../helpers/prompter.js';
 import { fixtureEnvelope } from '../helpers/snapshots.js';
 
@@ -229,11 +229,37 @@ describe('askPlan', () => {
       expect(plan?.config.targets).toEqual(existing().targets);
     });
 
+    it('start: again goes straight to consent, without the "already set up" question', async () => {
+      const p = new ScriptedPrompter([true]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'again' }));
+      p.done();
+      expect(p.asked).toEqual(['I own these systems or have written permission to test them']);
+      expect(plan?.config).toEqual(existing());
+    });
+
+    it('start: change and fresh skip the question too', async () => {
+      const change = new ScriptedPrompter([undefined, undefined, true, false, undefined, true, false, true]);
+      expect((await askPlan(change, deps({ existing: existing(), start: 'change' })))?.config.targets).toEqual(existing().targets);
+      change.done();
+      expect(change.asked[0]).toBe('Project name');
+      const fresh = new ScriptedPrompter(['newname', ['code']]);
+      expect((await askPlan(fresh, deps({ existing: existing(), start: 'fresh' })))?.config).toMatchObject({ name: 'newname', targets: [], hosts: [] });
+      fresh.done();
+    });
+
     it('Start over asks everything again with nothing kept', async () => {
       const p = new ScriptedPrompter(['fresh', 'newname', ['code']]);
       const plan = await askPlan(p, deps({ existing: existing() }));
       p.done();
       expect(plan?.config).toMatchObject({ name: 'newname', targets: [], hosts: [] });
     });
+  });
+});
+
+describe('collectorSteps', () => {
+  it('says how to run the collector on the server and what to bring back', () => {
+    expect(collectorSteps('/work/shop/.secagent/hosts/web-1/collector.sh', 'web-1')).toBe(
+      'Copy /work/shop/.secagent/hosts/web-1/collector.sh to web-1, read it, then run it there:\n  sudo sh collector.sh > web-1.json\nand bring web-1.json back.',
+    );
   });
 });
