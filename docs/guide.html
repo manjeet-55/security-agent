@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>secagent guide</title>
+<meta name="description" content="secagent is a terminal security scanner. See how a scan goes, who does what in each flow, what it checks and what it never does.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230f1316'/%3E%3Cpath d='M10 6h12l5 21H5z' fill='%23ffd23f'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400..600&display=swap">
+<style>
+/* Concept: a case file. Cool concrete paper, black ink, forensic-yellow evidence markers for every sequence, a scale ruler, ink stamps.
+   One black slab (the terminal) carries the page; everything else stays flat and ruled. */
+:root {
+  --paper: #e8eaeb;
+  --paper-2: #f3f4f4;
+  --ink: #0f1316;
+  --ink-2: #333e45;
+  --mute: #54606a;
+  --rule: #c2c9cd;
+  --rule-2: #9aa4aa;
+  --tent: #ffd23f;
+  --tent-ink: #2a2200;
+  --red: #c92a22;
+  --amber: #a85f08;
+  --green: #167a54;
+  --slab: #0d1114;
+  --slab-line: #232c32;
+  --on-slab: #d3dde2;
+  --on-slab-dim: #8196a1;
+  --display: 'Archivo', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --serif: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; background: var(--paper); }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 1.125rem/1.65 var(--serif);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+}
+body::after { content: ''; position: fixed; inset: 0; z-index: 60; pointer-events: none; opacity: 0.07; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+.wrap { width: min(1280px, 100%); margin-inline: auto; padding-inline: max(20px, env(safe-area-inset-left, 0px)) max(20px, env(safe-area-inset-right, 0px)); }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--tent); outline-offset: 3px; box-shadow: 0 0 0 5px var(--ink); }
+h1, h2, h3 { margin: 0; font-family: var(--display); letter-spacing: -0.02em; line-height: 1.04; text-wrap: balance; }
+h1, h2 { font-weight: 800; font-stretch: 116%; }
+h3 { font-weight: 700; font-stretch: 104%; line-height: 1.15; }
+p { margin: 0; }
+code { font-family: var(--mono); }
+mark { color: inherit; background: linear-gradient(transparent 60%, var(--tent) 60% 92%, transparent 92%); }
+
+/* Evidence marker: the numbered yellow tent from a crime-scene photo. It marks every sequence on the page. */
+.tent { display: inline-block; flex: none; filter: drop-shadow(0 3px 0 rgba(15, 19, 22, 0.22)); }
+.tent b { display: grid; place-items: end center; width: 34px; height: 38px; padding-bottom: 6px; background: linear-gradient(90deg, transparent 50%, rgba(0, 0, 0, 0.09) 50%), var(--tent); clip-path: polygon(17% 0, 83% 0, 100% 100%, 0 100%); color: var(--tent-ink); font: 800 0.95rem/1 var(--display); font-stretch: 100%; }
+.tent.sm b { width: 20px; height: 24px; padding-bottom: 3px; font-size: 0; }
+.tent.off b { background: linear-gradient(90deg, transparent 50%, rgba(0, 0, 0, 0.06) 50%), #c9cfd2; color: #78858c; }
+.tent.done b { background: linear-gradient(90deg, transparent 50%, rgba(0, 0, 0, 0.09) 50%), #ecd36e; }
+
+/* Scale ruler, as laid next to evidence for size. */
+.ruler { height: 14px; background: linear-gradient(90deg, var(--ink) 1px, transparent 1px) 0 100% / 8px 6px repeat-x, linear-gradient(90deg, var(--ink) 1px, transparent 1px) 0 100% / 40px 14px repeat-x; opacity: 0.8; }
+.ruler-v { width: 14px; background: linear-gradient(0deg, var(--ink) 1px, transparent 1px) 100% 0 / 6px 8px repeat-y, linear-gradient(0deg, var(--ink) 1px, transparent 1px) 100% 0 / 14px 40px repeat-y; opacity: 0.8; }
+
+.stamp { display: inline-block; padding: 4px 9px; border: 2px solid currentColor; border-radius: 2px; color: var(--red); font: 600 0.72rem/1.2 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; transform: rotate(-3deg); background: rgba(255, 255, 255, 0.35); white-space: nowrap; }
+.stamp.ok { color: var(--green); }
+.stamp.ink { color: var(--ink); }
+.stamp.big { padding: 10px 20px; border-width: 3px; font-size: 1.35rem; transform: rotate(-6deg); }
+
+/* Top bar */
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; background: rgba(232, 234, 235, 0.9); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border-bottom: 1px solid var(--ink); }
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 60px; }
+.word { display: inline-flex; align-items: center; gap: 10px; font: 800 1.2rem var(--display); font-stretch: 122%; letter-spacing: -0.03em; text-decoration: none; }
+.bar ul { display: flex; gap: 28px; margin: 0; padding: 0; list-style: none; font: 500 0.75rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.bar ul a { color: var(--ink-2); text-decoration: none; padding-block: 6px; border-bottom: 3px solid transparent; }
+.bar ul a:hover { color: var(--ink); border-color: var(--rule-2); }
+.bar ul a[aria-current='true'] { color: var(--ink); border-color: var(--tent); }
+
+/* Hero */
+.herowrap { position: relative; isolation: isolate; }
+.herowrap::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background-image: linear-gradient(rgba(15, 19, 22, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(15, 19, 22, 0.05) 1px, transparent 1px); background-size: 56px 56px; -webkit-mask-image: linear-gradient(#000 45%, transparent); mask-image: linear-gradient(#000 45%, transparent); }
+.hero { display: grid; grid-template-columns: minmax(0, 5.1fr) minmax(0, 6.9fr); gap: 64px; align-items: center; padding-block: 52px 104px; }
+.eyebrow { margin-bottom: 26px; font: 500 0.75rem/1.5 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+h1 { font-size: clamp(2.3rem, 0.9rem + 3.5vw, 4.1rem); font-stretch: 112%; letter-spacing: -0.035em; }
+h1 span { color: var(--mute); }
+.lede { margin-top: 26px; max-width: 31em; color: var(--ink-2); font-size: 1.25rem; line-height: 1.6; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 26px; margin-top: 34px; }
+.chip { display: inline-flex; align-items: center; gap: 14px; max-width: 100%; padding: 15px 16px 15px 20px; background: var(--ink); color: var(--paper-2); border: 0; border-radius: 3px; font: 500 0.95rem var(--mono); text-align: left; cursor: pointer; box-shadow: 5px 5px 0 var(--tent); transition: transform 0.15s, box-shadow 0.15s; }
+.chip:hover { transform: translate(-1px, -1px); box-shadow: 7px 7px 0 var(--tent); }
+.chip .ps { color: var(--tent); }
+.chip .act { margin-left: 4px; padding-left: 14px; border-left: 1px solid #3a464d; color: var(--tent); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; }
+.ghost { font: 500 0.78rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); text-decoration-color: var(--tent); text-decoration-thickness: 3px; text-underline-offset: 6px; }
+.ghost:hover { color: var(--ink); }
+.ledger { display: flex; flex-wrap: wrap; margin: 48px 0 0; padding: 0; }
+.ledger div { padding: 0 28px 0 18px; border-left: 2px solid var(--ink); }
+.ledger div:first-child { padding-left: 0; border-left: 0; }
+.ledger dt { order: 2; font: 500 0.72rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--mute); }
+.ledger dd { order: 1; margin: 0; font: 800 2.5rem/1 var(--display); font-stretch: 122%; letter-spacing: -0.04em; }
+.ledger div { display: flex; flex-direction: column; gap: 6px; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+.hero > div:first-child > * { animation: rise 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.hero > div:first-child > :nth-child(2) { animation-delay: 0.07s; }
+.hero > div:first-child > :nth-child(3) { animation-delay: 0.14s; }
+.hero > div:first-child > :nth-child(4) { animation-delay: 0.21s; }
+.hero > div:first-child > :nth-child(5) { animation-delay: 0.28s; }
+
+/* The terminal slab */
+.demo { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 14px; min-width: 0; animation: rise 1s 0.15s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.demo .ruler-v { grid-row: 1; margin-block: 6px; }
+.slab { grid-column: 2; min-width: 0; overflow: hidden; background: var(--slab); border-radius: 6px; box-shadow: 0 2px 0 #000, 0 46px 60px -34px rgba(15, 19, 22, 0.75); }
+.term-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--slab-line); }
+.term-bar .path { font: 500 0.8rem var(--mono); color: var(--on-slab-dim); }
+.badge { padding: 2px 8px; border: 1px solid #3a464d; border-radius: 2px; color: var(--tent); font: 500 0.66rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.replay { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; background: none; border: 1px solid #3a464d; border-radius: 3px; color: var(--on-slab); font: 500 0.72rem var(--mono); cursor: pointer; }
+.replay:hover { border-color: var(--tent); color: var(--tent); }
+.replay svg { width: 13px; height: 13px; }
+.slab.paused .badge { background: var(--tent); border-color: var(--tent); color: var(--tent-ink); }
+.slab.paused .caret { animation: none; }
+.term-body { cursor: pointer; }
+.term-body { height: 560px; overflow-y: auto; padding: 18px 20px 24px; color: var(--on-slab); font: 400 0.8125rem/1.6 var(--mono); scrollbar-width: thin; scrollbar-color: #33414a transparent; }
+.ln { min-height: 1.6em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.term-body b { color: #fff; font-weight: 600; }
+.term-body .d { color: var(--on-slab-dim); font-style: normal; }
+.term-body .q, .term-body .pt { color: var(--tent); font-weight: 600; }
+.term-body .r { color: #ff7b72; }
+.term-body .hi { color: #ffa65c; }
+.term-body .ps { color: var(--on-slab-dim); }
+.opt .lab { color: #9fb0b9; }
+.opt.sel .lab { color: #fff; font-weight: 600; }
+.caret { display: inline-block; width: 0.55em; height: 1.15em; margin-left: 2px; vertical-align: text-bottom; background: var(--tent); animation: blink 1.05s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.stages { grid-column: 2; position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 22px 0 0; padding: 0; list-style: none; }
+.stages::before { content: ''; position: absolute; left: 0; right: 0; top: 38px; height: 2px; background: var(--ink); }
+.stages button { display: grid; justify-items: start; gap: 12px; width: 100%; padding: 0; background: none; border: 0; color: var(--mute); font: 600 0.82rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; text-align: left; cursor: pointer; }
+.stages button:hover { color: var(--ink); }
+.stages button.on { color: var(--ink); }
+.stages button.on .tent { transform: translateY(-5px); }
+.stages .tent { position: relative; z-index: 1; transition: transform 0.25s; }
+.caption { grid-column: 2; min-height: 3.4em; margin-top: 12px; max-width: 34em; color: var(--ink-2); font-size: 1rem; line-height: 1.55; }
+
+/* Sections */
+.sect { padding-block: 112px; border-top: 1px solid var(--ink); scroll-margin-top: 60px; }
+.head { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 56px; align-items: end; margin-bottom: 56px; }
+h2 { font-size: clamp(2rem, 1rem + 2.7vw, 3.3rem); }
+.head p { color: var(--ink-2); max-width: 30em; }
+.split { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 72px; }
+.split > header { position: sticky; top: 96px; align-self: start; display: grid; gap: 22px; justify-items: start; }
+.split > header p { color: var(--ink-2); }
+
+/* Flows */
+.flowtabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--rule-2); }
+.flowtabs button { display: grid; gap: 4px; align-content: start; padding: 18px 20px 20px 0; background: none; border: 0; border-top: 5px solid transparent; color: var(--mute); text-align: left; cursor: pointer; }
+.flowtabs button strong { font: 700 1.1rem var(--display); letter-spacing: -0.01em; }
+.flowtabs button span { font-size: 0.92rem; line-height: 1.4; }
+.flowtabs button:hover { color: var(--ink); }
+.flowtabs button[aria-selected='true'] { color: var(--ink); border-top-color: var(--ink); }
+.flowtabs button[aria-selected='true'] strong::before { content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 10px; background: var(--tent); border: 2px solid var(--ink); vertical-align: -1px; }
+.diagram { margin-top: 8px; padding: 22px 24px 26px; background: var(--paper-2); border: 1px solid var(--ink); border-radius: 4px; box-shadow: 6px 6px 0 rgba(15, 19, 22, 0.1); }
+.grid { position: relative; display: grid; grid-template-columns: 112px repeat(5, minmax(0, 1fr)); column-gap: 44px; }
+.lane-band { grid-column: 1 / -1; border-top: 1px solid var(--rule); }
+.lane-band:first-of-type { border-top: 0; }
+.lane-label { align-self: center; font: 600 0.74rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--mute); }
+.lane-label.me { color: var(--ink); }
+.node { position: relative; z-index: 1; grid-column: var(--c); grid-row: var(--r); display: grid; gap: 8px; align-content: start; margin-block: 16px; padding: 14px 16px 16px; background: var(--paper); border: 1px solid var(--rule-2); border-radius: 3px; opacity: 0.55; transition: opacity 0.35s, background 0.35s, border-color 0.35s, transform 0.35s, box-shadow 0.35s; }
+.node::after { content: ''; position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border: 1.5px solid var(--rule-2); border-radius: 50%; background: var(--paper-2); }
+.node.lit { opacity: 1; background: #fff; border-color: var(--ink); transform: translateY(-3px); box-shadow: 0 14px 24px -16px rgba(15, 19, 22, 0.55); }
+.node.lit::after { border-color: var(--ink); }
+.node .top { display: flex; align-items: center; gap: 10px; }
+.node .who { display: none; font: 600 0.68rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--mute); }
+.node h3 { font-size: 1.02rem; }
+.node p { color: var(--ink-2); font-size: 0.9rem; line-height: 1.5; }
+.node code { padding: 1px 5px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 2px; font-size: 0.78rem; overflow-wrap: anywhere; }
+.node:not(.lit) .tent b { background: #c9cfd2; color: #78858c; }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.wires .base { fill: none; stroke: var(--rule-2); stroke-width: 1.5; stroke-dasharray: 4 5; }
+.wires .flow { fill: none; stroke: var(--ink); stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 0.6s ease; }
+.wires .flow.lit { stroke-dashoffset: 0; }
+.wires .head { fill: var(--rule-2); transition: fill 0.3s; }
+.wires .head.lit { fill: var(--ink); }
+.result { margin-top: 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding-top: 18px; border-top: 1px solid var(--rule-2); color: var(--ink-2); font-size: 1.02rem; }
+.result .lab { font: 600 0.72rem var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); }
+
+/* Inside a scan */
+.line { position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 28px; margin: 0; padding: 54px 0 0; list-style: none; }
+.line::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 14px; background: linear-gradient(90deg, var(--ink) 1px, transparent 1px) 0 100% / 8px 6px repeat-x, linear-gradient(90deg, var(--ink) 1px, transparent 1px) 0 100% / 40px 14px repeat-x; opacity: 0.8; }
+.st { position: relative; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.st::before { content: ''; position: absolute; left: 0; top: -54px; width: 18px; height: 18px; margin-top: 14px; background: var(--tent); border: 3px solid var(--ink); border-radius: 50%; }
+.st.gate::after { content: ''; position: absolute; left: 6px; top: -62px; width: 6px; height: 40px; background: var(--ink); }
+.st h3 { font-size: 1.08rem; }
+.st p { color: var(--ink-2); font-size: 0.93rem; line-height: 1.5; }
+.st .stamp { justify-self: start; margin-top: 4px; }
+.mono-n { font: 500 0.74rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
+
+/* Checks ledger */
+.cols3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--ink); }
+.col { min-width: 0; padding: 30px 32px 34px; border-left: 1px solid var(--rule-2); }
+.col:first-child { padding-left: 0; border-left: 0; }
+.col:last-child { padding-right: 0; }
+.bignum { font: 800 clamp(3.4rem, 2rem + 3.4vw, 5.4rem)/0.95 var(--display); font-stretch: 125%; letter-spacing: -0.045em; }
+.col h3 { margin-top: 12px; font-size: 1.3rem; }
+.needs { margin-top: 6px; font: 500 0.74rem var(--mono); letter-spacing: 0.04em; color: var(--mute); }
+.rows { margin: 22px 0 0; padding: 0; list-style: none; }
+.rows li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--rule); font-size: 0.98rem; line-height: 1.4; }
+.rows li.more { color: var(--mute); font-style: italic; }
+.sev { display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid currentColor; border-radius: 2px; font: 700 0.64rem/1 var(--mono); font-style: normal; transform: translateY(2px); }
+.sev.h { color: var(--red); }
+.sev.m { color: var(--amber); }
+.sev.l { color: var(--mute); }
+.note { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule-2); color: var(--ink-2); font-size: 0.92rem; line-height: 1.5; }
+.legend { margin-top: 26px; font: 500 0.72rem var(--mono); letter-spacing: 0.06em; color: var(--mute); }
+
+/* Rules */
+.rulelist { margin: 0; padding: 0; list-style: none; border-bottom: 1px solid var(--ink); }
+.rulelist li { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; padding: 26px 0; border-top: 1px solid var(--rule-2); }
+.rulelist li:first-child { border-top: 1px solid var(--ink); }
+.rulelist h3 { font-size: 1.25rem; }
+.rulelist p { color: var(--ink-2); font-size: 1.02rem; line-height: 1.55; }
+
+/* Help, AI, CI */
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--ink); }
+.panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 30px 32px 6px; border-left: 1px solid var(--rule-2); }
+.panel:first-child { padding-left: 0; border-left: 0; }
+.panel:last-child { padding-right: 0; }
+.panel h3 { font-size: 1.3rem; }
+.panel p { color: var(--ink-2); font-size: 1rem; line-height: 1.55; }
+.code { flex: 1; margin-top: 8px; padding: 16px 18px; overflow-x: auto; background: var(--slab); border-radius: 4px; color: var(--on-slab); font: 400 0.8rem/1.75 var(--mono); white-space: pre; }
+.code .ps, .code .d { color: var(--on-slab-dim); }
+.code .hl { color: var(--tent); }
+
+/* Closing slab */
+.cta { padding-block: 0 112px; border: 0; }
+.cta-slab { position: relative; overflow: hidden; display: grid; gap: 30px; justify-items: start; padding: clamp(36px, 6vw, 84px); padding-top: clamp(52px, 7vw, 100px); background: var(--slab); border-radius: 6px; color: #f3f6f7; }
+.cta-slab::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 14px; background: linear-gradient(90deg, var(--tent) 1px, transparent 1px) 0 100% / 8px 6px repeat-x, linear-gradient(90deg, var(--tent) 1px, transparent 1px) 0 100% / 40px 14px repeat-x; opacity: 0.85; }
+.cta h2 { max-width: 15ch; font-size: clamp(2.3rem, 1rem + 3.8vw, 4.2rem); font-stretch: 118%; }
+.cta .chip { background: var(--tent); color: var(--tent-ink); box-shadow: 5px 5px 0 rgba(255, 255, 255, 0.2); }
+.cta .chip:hover { box-shadow: 7px 7px 0 rgba(255, 255, 255, 0.28); }
+.cta .chip .ps { color: var(--tent-ink); opacity: 0.6; }
+.cta .chip .act { border-color: rgba(42, 34, 0, 0.35); color: var(--tent-ink); }
+.docs { display: flex; flex-wrap: wrap; gap: 8px 26px; font: 400 0.84rem var(--mono); color: var(--on-slab-dim); }
+.docs a { color: var(--on-slab); text-decoration-color: var(--tent); text-underline-offset: 5px; }
+.fine { color: var(--on-slab-dim); font-size: 0.95rem; }
+.foot { padding-block: 0 44px; font: 500 0.72rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
+
+@media (max-width: 1080px) {
+  .hero { grid-template-columns: minmax(0, 1fr); gap: 56px; padding-bottom: 80px; }
+  .split { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+  .split > header { position: static; }
+  .head { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .line { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 64px; }
+  .cols3, .trio { grid-template-columns: minmax(0, 1fr); }
+  .col, .panel { padding: 30px 0 34px; border-left: 0; border-top: 1px solid var(--rule-2); }
+  .col:first-child, .panel:first-child { border-top: 0; }
+  .flowtabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .grid { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
+  .lane-band, .lane-label, .wires { display: none; }
+  .node { grid-column: auto; grid-row: auto; margin-block: 0 14px; }
+  .node .who { display: inline; }
+  .node .top { justify-content: space-between; }
+}
+@media (max-width: 700px) {
+  .sect { padding-block: 72px; }
+  .bar ul { display: none; }
+  .term-body { height: 500px; padding: 14px 14px 20px; }
+  .badge { display: none; }
+  .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; }
+  .stages::before { display: none; }
+  .line { grid-template-columns: minmax(0, 1fr); }
+  .rulelist li { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .flowtabs { grid-template-columns: minmax(0, 1fr); }
+  .demo { grid-template-columns: minmax(0, 1fr); }
+  .demo .ruler-v { display: none; }
+  .demo > * { grid-column: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .caret, .demo, .hero > div:first-child > * { animation: none; }
+  .chip, .node, .stages .tent, .wires .flow { transition: none; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap bar">
+    <a class="word" href="#top"><span class="tent sm"><b></b></span>secagent</a>
+    <ul id="spy">
+      <li><a href="#flows">Flows</a></li>
+      <li><a href="#inside">Inside a scan</a></li>
+      <li><a href="#checks">Checks</a></li>
+      <li><a href="#rules">Rules</a></li>
+      <li><a href="#help">Help</a></li>
+    </ul>
+  </div>
+</header>
+<div class="ruler" aria-hidden="true"></div>
+
+<main id="top">
+  <div class="herowrap">
+    <div class="wrap hero">
+      <div>
+        <p class="eyebrow">Terminal security scanner · <mark>no AI model</mark> · no API key</p>
+        <h1>Find what an attacker would <mark>hit first.</mark> <span>Then fix it, in order.</span></h1>
+        <p class="lede">Run secagent inside your project. It asks what to check, asks your permission, scans your code, websites and servers, and writes a report anyone can read. The same inputs always give the same result.</p>
+        <div class="actions">
+          <button class="chip" id="copy" type="button" data-copy="cd your-project &amp;&amp; secagent" aria-label="Copy the command: cd your-project and secagent">
+            <span><span class="ps">$</span> cd your-project &amp;&amp; secagent</span><span class="act">Copy</span>
+          </button>
+          <a class="ghost" href="#flows">See the flows</a>
+        </div>
+        <dl class="ledger">
+          <div><dt>checks</dt><dd>33</dd></div>
+          <div><dt>report formats</dt><dd>3</dd></div>
+          <div><dt>AI calls in a scan</dt><dd>0</dd></div>
+        </dl>
+      </div>
+
+      <div class="demo">
+        <div class="ruler-v" aria-hidden="true"></div>
+        <div class="slab">
+          <div class="term-bar">
+            <span class="path">~/shop — secagent</span>
+            <span class="badge" id="badge">example run</span>
+            <button class="replay" id="pause" type="button" aria-label="Pause or resume the demo" style="margin-left:auto">Pause</button>
+            <button class="replay" id="replay" type="button" aria-label="Replay the demo" style="margin-left:0">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.8-4.1"/><path d="M2.5 2.5v3h3"/></svg>
+              Replay
+            </button>
+          </div>
+          <div class="term-body" id="screen" role="img" aria-label="Animated example of a secagent session: the first-run questions, a scan, the home screen and an explained finding."><noscript>Turn on JavaScript to watch the example run. Start it yourself with: cd your-project &amp;&amp; secagent</noscript></div>
+        </div>
+        <ol class="stages" id="stages">
+          <li><button type="button" data-i="0"><span class="tent off"><b>1</b></span>Ask</button></li>
+          <li><button type="button" data-i="1"><span class="tent off"><b>2</b></span>Scan</button></li>
+          <li><button type="button" data-i="2"><span class="tent off"><b>3</b></span>Home</button></li>
+          <li><button type="button" data-i="3"><span class="tent off"><b>4</b></span>Explain</button></li>
+        </ol>
+        <p class="caption" id="caption"></p>
+      </div>
+    </div>
+  </div>
+
+  <section class="sect" id="flows">
+    <div class="wrap">
+      <div class="head">
+        <h2>Four ways to use it, and who does what.</h2>
+        <p>Pick a flow. Each step sits in the lane of whoever does it. Anything that changes something stays in yours.</p>
+      </div>
+      <div class="flowtabs" id="flowtabs" role="tablist" aria-label="Flows"></div>
+      <div class="diagram" id="diagram"></div>
+      <p class="result" id="result"></p>
+    </div>
+  </section>
+
+  <section class="sect" id="inside">
+    <div class="wrap">
+      <div class="head">
+        <h2>What happens inside a scan.</h2>
+        <p>Every request passes one gate. Every finding points at something recorded. Nothing is guessed.</p>
+      </div>
+      <ol class="line">
+        <li class="st"><span class="mono-n">Input</span><h3>project.yaml</h3><p>Your list of sites and servers. Nothing outside it is ever touched.</p></li>
+        <li class="st"><span class="mono-n">Permission</span><h3>Your yes</h3><p>Stored outside the repo and tied to the addresses you listed, so a cloned repo cannot confirm itself.</p></li>
+        <li class="st gate"><span class="mono-n">The only way out</span><h3>Scope gate</h3><p>Listed targets only. GET and HEAD. Redirects are not followed, cloud-metadata addresses are never probed.</p><span class="stamp">Refused: not on your list</span></li>
+        <li class="st"><span class="mono-n">Fixed rules</span><h3>33 checks</h3><p>No AI model and no randomness. The same inputs give the same result.</p></li>
+        <li class="st"><span class="mono-n">Proof</span><h3>Evidence</h3><p>Each finding cites what was observed. A check that could not run is unknown, not passed.</p><span class="stamp ink">Unverifiable</span></li>
+        <li class="st"><span class="mono-n">Output</span><h3>Report</h3><p>Fix first, then PDF, HTML and Markdown. Stable ids let the next scan say what changed.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="sect" id="checks">
+    <div class="wrap">
+      <div class="head">
+        <h2>Code, websites and servers.</h2>
+        <p>Thirty-three checks. Each has a plain-language reason and a fix written for your stack, and a severity you can read at a glance.</p>
+      </div>
+      <div class="cols3">
+        <div class="col">
+          <div class="bignum">5</div>
+          <h3>Your code</h3>
+          <p class="needs">Needs nothing extra</p>
+          <ul class="rows">
+            <li><i class="sev h">H</i><span>No secrets in your source files</span></li>
+            <li><i class="sev h">H</i><span>No secrets in the git history</span></li>
+            <li><i class="sev h">H</i><span>No .env or key files committed to git</span></li>
+            <li><i class="sev h">H</i><span>.env and key files are in .gitignore</span></li>
+            <li><i class="sev h">H</i><span>npm dependencies have no known vulnerabilities</span></li>
+          </ul>
+          <p class="note">Stays on your machine. Only package names and versions go to public advisory databases.</p>
+        </div>
+        <div class="col">
+          <div class="bignum">17</div>
+          <h3>Websites and APIs</h3>
+          <p class="needs">Needs the address, and your OK</p>
+          <ul class="rows">
+            <li><i class="sev h">H</i><span>Secrets, .git and source maps are not served</span></li>
+            <li><i class="sev h">H</i><span>TLS 1.0 and 1.1 are refused</span></li>
+            <li><i class="sev h">H</i><span>Certificate is trusted, with 21+ days left</span></li>
+            <li><i class="sev h">H</i><span>Plain HTTP redirects to HTTPS</span></li>
+            <li><i class="sev h">H</i><span>CORS does not expose responses to unknown sites</span></li>
+            <li><i class="sev h">H</i><span>DNS does not point at a name that no longer exists</span></li>
+            <li><i class="sev m">M</i><span>HSTS is on with at least 180 days</span></li>
+            <li><i class="sev m">M</i><span>Content-Security-Policy limits script sources</span></li>
+            <li><i class="sev m">M</i><span>Cookies set Secure, HttpOnly and SameSite</span></li>
+            <li class="more"><i></i><span>and 8 more: other headers, cipher suites, header size</span></li>
+          </ul>
+          <p class="note">Read-only GET and HEAD requests. Redirects are never followed.</p>
+        </div>
+        <div class="col">
+          <div class="bignum">11</div>
+          <h3>Servers</h3>
+          <p class="needs">Needs you to run a read-only script</p>
+          <ul class="rows">
+            <li><i class="sev h">H</i><span>Databases do not listen on every interface</span></li>
+            <li><i class="sev h">H</i><span>Admin and database ports are not reachable</span></li>
+            <li><i class="sev h">H</i><span>No pending package security fixes</span></li>
+            <li><i class="sev m">M</i><span>SSH root login is disabled or key-only</span></li>
+            <li><i class="sev m">M</i><span>SSH password logins are disabled</span></li>
+            <li><i class="sev m">M</i><span>Automatic security updates are on</span></li>
+            <li><i class="sev m">M</i><span>nginx refuses SSLv3, TLS 1.0 and 1.1</span></li>
+            <li><i class="sev m">M</i><span>Third-party packages are known and patched</span></li>
+            <li class="more"><i></i><span>and 3 more: reboots, nginx version, load balancer</span></li>
+          </ul>
+          <p class="note">secagent never logs in. You bring the script’s output back.</p>
+        </div>
+      </div>
+      <p class="legend">H high · M medium · L low. Severity is set by the check, not by a model.</p>
+    </div>
+  </section>
+
+  <section class="sect" id="rules">
+    <div class="wrap split">
+      <header>
+        <h2>It only reads, and only what you list.</h2>
+        <p>These rules are enforced in code and covered by tests. They are not settings.</p>
+        <span class="stamp big ink">Read-only</span>
+      </header>
+      <ul class="rulelist">
+        <li><h3>Only your list</h3><p>Sites and servers in project.yaml, nothing else. An address a page redirects to is refused too.</p></li>
+        <li><h3>You say yes first</h3><p>Nothing on the network is touched until you confirm. Your yes is stored outside the project, not in the repo.</p></li>
+        <li><h3>No logins, no guessing</h3><p>GET and HEAD requests, TLS handshakes and TCP checks. No form posts and no password attempts.</p></li>
+        <li><h3>Evidence or nothing</h3><p>Every finding cites a recorded observation. A check that could not run is marked unverifiable, never passed.</p></li>
+        <li><h3>Values never printed</h3><p>Output carries the file, the line, the pattern and a short fingerprint. The secret itself never leaves.</p></li>
+        <li><h3>People decide risk</h3><p>An AI assistant cannot edit project.yaml, accept a risk or approve a lesson. Only you can.</p></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sect" id="help">
+    <div class="wrap">
+      <div class="head">
+        <h2>Guided, so nobody has to memorise it.</h2>
+        <p>Help is built in, an AI assistant can drive it, and your pipeline can gate on it.</p>
+      </div>
+      <div class="trio">
+        <article class="panel">
+          <h3>Help that says what to do</h3>
+          <p>Every command has a page. Five guides cover the common jobs, and a typo gets a suggestion.</p>
+<div class="code"><span class="ps">$</span> secagent help
+<span class="d">Guides  first-scan · servers · ai · ci · safety</span>
+<span class="ps">$</span> secagent scna
+<span class="d">Unknown command "scna". Did you mean "scan"?</span></div>
+        </article>
+        <article class="panel">
+          <h3>Bring your AI assistant</h3>
+          <p>Claude Code, Cursor or any MCP client can scan, explain and help fix. secagent still decides every status.</p>
+<div class="code"><span class="ps">$</span> secagent mcp setup
+<span class="hl">claude mcp add secagent -- \</span>
+<span class="hl">  secagent mcp --dir /path/to/project</span>
+<span class="d">Ask: "Run a security review of this project"</span></div>
+        </article>
+        <article class="panel">
+          <h3>Gate your pipeline</h3>
+          <p>Run it in CI with no questions. The build fails when a finding reaches the severity you choose.</p>
+<div class="code"><span class="ps">$</span> secagent scan --only code --fail-on high
+<span class="d">exit 1 on a high or critical finding</span>
+<span class="d">no questions asked; for scripts and CI</span>
+<span class="d">--only code, web or host picks a group</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="sect cta" id="start">
+    <div class="wrap">
+      <div class="cta-slab">
+        <h2>Try it on your own project.</h2>
+        <button class="chip" id="copy2" type="button" data-copy="cd your-project &amp;&amp; secagent" aria-label="Copy the command: cd your-project and secagent">
+          <span><span class="ps">$</span> cd your-project &amp;&amp; secagent</span><span class="act">Copy</span>
+        </button>
+        <p class="docs">Read more:
+          <a href="../README.md">README</a>
+          <a href="usage.md">usage</a>
+          <a href="overview.md">overview</a>
+          <a href="mcp.md">AI clients</a>
+        </p>
+        <p class="fine">Deterministic by design: no AI model, no API key, and the same inputs give the same result.</p>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="wrap foot">secagent · terminal security scanner</footer>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const tent = (n, cls = '') => `<span class="tent ${cls}"><b>${n}</b></span>`;
+
+  /* ---------- The terminal: text is what the built binary printed, with the folder renamed to ~/shop ---------- */
+  const screen = $('#screen');
+  const follow = () => { screen.scrollTop = screen.scrollHeight; };
+  const add = (html = '', cls = '') => {
+    const d = document.createElement('div');
+    d.className = `ln ${cls}`.trim();
+    d.innerHTML = html;
+    screen.append(d);
+    follow();
+    return d;
+  };
+
+  const INTRO = [
+    ['<b>secagent</b> · security check for this project'],
+    ['  Folder: ~/shop'], ['  Stack: express'], ['  Git: repository'], [''],
+    ["I look at your project the way an attacker's first pass would, then tell you what to fix first."],
+    ['  • Code: secrets, .env and key files, git history, npm packages'],
+    ['  • Websites and APIs you give me: headers, TLS, cookies, exposed files'],
+    ['  • Servers you give me: SSH, nginx, packages (you run a read-only script on them)'], [''],
+    ['I never log in, guess passwords or change anything. I only send read-only requests, only to addresses you list, and only after you say I may. Secret values are never printed.'], [''],
+  ];
+  const CHECKS = [
+    'npm dependencies have no known vulnerabilities',
+    'No environment, key or credentials files are committed to git',
+    'Environment, key and credentials files are covered by .gitignore',
+    'No secrets in the git history',
+    "No secrets in the project's source files",
+  ];
+  const FIRST = [
+    ['npm dependencies have no known vulnerabilities', 'Run "npm audit" to see the fixed versions, then "npm audit fix" or raise the version in package.json; re-run the tests.'],
+    ['No environment, key or credentials files are committed to git', 'Rotate whatever the file holds (it is in the history for everyone with a copy), run "git rm --cached <file>", add it to .gitignore and commit a template such a…'],
+    ['Environment, key and credentials files are covered by .gitignore', 'Add the file (or a pattern such as ".env*" with "!.env.example") to .gitignore before anyone runs "git add .".'],
+  ];
+  const MENU = [
+    ['See what to fix first', 'suggested · 5 open'],
+    ['Scan again'],
+    ['Open the report'],
+    ["Review what the scan can't see", 'a checklist for you or your AI'],
+    ['Accepted risks'],
+    ['Connect an AI assistant'],
+    ['Settings and setup', 'change what is checked, start over, check this machine'],
+    ['How secagent works', 'step-by-step guides'],
+    ['Exit'],
+  ];
+  const FINDINGS = CHECKS.map((c) => ['HIGH: ' + c, "this project's code"]).concat([['Back']]);
+
+  const question = (q, hint) => `<span class="q">?</span> <b>${esc(q)}</b>${hint ? ` <i class="d">${esc(hint)}</i>` : ''} <span class="pt">›</span>`;
+  const answered = (q, a) => `<span class="q">?</span> <b>${esc(q)}</b> <span class="pt">›</span> ${esc(a)}`;
+  const option = ([label, hint], on, mark = '') =>
+    `<div class="ln opt${on ? ' sel' : ''}">  <span class="pt">${on ? '›' : ' '}</span> ${mark}<span class="lab">${esc(label)}</span>${hint ? `  <i class="d">${esc(hint)}</i>` : ''}</div>`;
+
+  async function typeCmd(w, text) {
+    const d = add('<span class="ps">$</span> <span class="cmd"></span><span class="caret"></span>');
+    const cmd = $('.cmd', d);
+    if (reduce) cmd.textContent = text;
+    else for (const ch of text) { cmd.textContent += ch; await w(75); }
+    await w(450);
+    $('.caret', d).remove();
+  }
+
+  /* A menu that moves its pointer to `pick`, then collapses to the answered line, as the real prompt does. */
+  async function choose(w, { q, hint, items, pick, multi = false }) {
+    const box = document.createElement('div');
+    screen.append(box);
+    const ticked = new Set(multi ? [pick] : []);
+    const draw = (i) => {
+      box.innerHTML = `<div class="ln">${question(q, hint)}</div>` + items.map((it, k) => option(it, k === i, multi ? `${ticked.has(k) ? '<span class="pt">◉</span>' : '<span class="d">○</span>'} ` : '')).join('');
+      follow();
+    };
+    draw(0);
+    await w(1000);
+    if (!multi) for (let i = 1; i <= pick; i++) { draw(i); await w(420); }
+    await w(550);
+    box.innerHTML = `<div class="ln">${answered(q, items[pick][0])}</div>`;
+    follow();
+  }
+
+  const SCENES = [
+    async (w) => {
+      await typeCmd(w, 'secagent');
+      add();
+      for (const [t] of INTRO) { add(t); await w(70); }
+      await choose(w, { q: 'Shall we start?', hint: '(arrows to move, enter to choose)', items: [['Set up and scan this project'], ['How secagent works first'], ['Quit']], pick: 0 });
+      add(`${question('Project name (shop)')} `);
+      await w(700);
+      await choose(w, { q: 'What should I check?', hint: '(space to select, enter to confirm)', multi: true, pick: 0, items: [
+        ["This project's code", 'secrets, .env files, git history, npm dependencies'],
+        ['Deployed websites or APIs', 'headers, TLS, exposed files'],
+        ['Servers', 'SSH, nginx, packages (needs the collector)'],
+      ] });
+    },
+    async (w) => {
+      add("I'm running 5 checks on your code.");
+      add();
+      add('<b>Code</b>');
+      for (let i = 0; i < CHECKS.length; i++) {
+        await w(650);
+        add(`  <span class="r">✗</span> ${i + 1}/5  ${esc(CHECKS[i])}`);
+      }
+      await w(500);
+      add();
+      add('<b>Needs attention:</b> 5 high-priority issue(s)');
+      add('  <span class="hi">high 5</span>');
+      await w(900);
+      add();
+      add('<b>Fix first</b>');
+      for (let i = 0; i < FIRST.length; i++) {
+        add(`  ${i + 1}. <span class="r">Failed:</span> ${esc(FIRST[i][0])} — this project's code`);
+        add(`     <i class="d">${esc(FIRST[i][1])}</i>`);
+        await w(500);
+      }
+      await w(600);
+      add();
+      add('<b>Report</b>');
+      add('  Markdown: .secagent/reports/latest.md');
+      add('  PDF:      .secagent/reports/latest.pdf');
+      add('  HTML:     .secagent/reports/latest.html');
+    },
+    async (w) => {
+      await typeCmd(w, 'secagent');
+      add();
+      add('<b>secagent · shop</b>  <i class="d">(express, git)</i>');
+      add();
+      add('  Last scan   today · Needs attention: 5 high-priority issue(s) · <span class="hi">high 5</span>');
+      add('  Websites    none listed');
+      add('  Servers     none listed');
+      add();
+      await w(500);
+      add('  <b>Next:</b> 5 high-priority issue(s) are open. Fix those first; I will show you what to change.');
+      add();
+      await w(900);
+      const box = document.createElement('div');
+      screen.append(box);
+      box.innerHTML = `<div class="ln">${question('What do you want to do?', '(arrows to move, enter to choose)')}</div>` + MENU.map((m, k) => option(m, k === 0)).join('');
+      follow();
+      await w(2400);
+      box.innerHTML = `<div class="ln">${answered('What do you want to do?', MENU[0][0])}</div>`;
+    },
+    async (w) => {
+      add(answered('What do you want to do?', MENU[0][0]));
+      add();
+      add('I found 5 thing(s) to fix. Most urgent first:');
+      await choose(w, { q: 'Which one should I explain?', hint: '(arrows to move, enter to choose)', items: FINDINGS, pick: 0 });
+      add();
+      await w(500);
+      add('<b>Failed: npm dependencies have no known vulnerabilities</b>  <span class="hi">high</span>');
+      const rows = [
+        ['Where', "this project's code"],
+        ['Found', '2 of 2 npm package(s) have known advisories: express@4.17.1 GHSA-qw6h-vgh9-j6wx, GHSA-rv95-896h-c2vc; lodash@4.17.15 GHSA-29mw-wpgm-hmr9, GHSA-35jh-r3h4-6jhm, GHSA-f23m-r3pf-42rh, .... Run npm audit for the fixed versions.'],
+        ['Why', 'A library with a published vulnerability gives attackers a ready-made way in, and the details of how to exploit it are often public.'],
+        ['Fix', 'Run "npm audit" to see the fixed versions, then "npm audit fix" or raise the version in package.json; re-run the tests. For a dev-only package the risk is to developers and CI, not to users.'],
+        ['Evidence', 'ev_20261030T113623Z_d8ffb382'],
+      ];
+      for (const [k, v] of rows) { await w(650); add(`  <b>${k.padEnd(9)}</b>${esc(v)}`); }
+    },
+  ];
+
+  const CAPTIONS = [
+    'Run one command. It says what it will and will not do, then asks what to check.',
+    'It scans, lists what to fix first, and writes the full report to .secagent/reports/.',
+    'Every later run opens a home screen: where things stand, what to do next, and a menu.',
+    'Pick any finding to see where it is, why it matters, how to fix it and the evidence behind it.',
+  ];
+  const stageBtns = $$('#stages button');
+  const caption = $('#caption');
+  const setActive = (i) => {
+    stageBtns.forEach((b, k) => {
+      b.classList.toggle('on', k === i);
+      b.setAttribute('aria-current', k === i ? 'step' : 'false');
+      const t = $('.tent', b);
+      t.classList.toggle('off', k > i);
+      t.classList.toggle('done', k < i);
+    });
+    caption.textContent = CAPTIONS[i];
+  };
+
+  const CANCEL = Symbol('cancel');
+  let gen = 0;
+  /* Pause: every wait holds here while paused, so typing, menus and scenes all freeze mid-frame. */
+  let paused = false;
+  const held = [];
+  const slab = $('.slab');
+  const pauseBtn = $('#pause');
+  const badge = $('#badge');
+  function setPaused(p) {
+    paused = p;
+    slab.classList.toggle('paused', p);
+    pauseBtn.textContent = p ? 'Resume' : 'Pause';
+    badge.textContent = p ? 'paused' : 'example run';
+    if (!p) held.splice(0).forEach((f) => f());
+  }
+  async function play(from) {
+    const mine = ++gen;
+    setPaused(false);
+    const w = (ms) => new Promise((ok, no) => setTimeout(() => {
+      if (mine !== gen) return no(CANCEL);
+      if (!paused) return ok();
+      held.push(() => (mine === gen ? ok() : no(CANCEL)));
+    }, reduce ? 0 : ms));
+    try {
+      for (let i = from; i < SCENES.length; i++) {
+        setActive(i);
+        screen.innerHTML = '';
+        await SCENES[i](w);
+        if (reduce) return;
+        await w(1700);
+      }
+      stageBtns.forEach((b) => { const t = $('.tent', b); t.classList.remove('off'); t.classList.add('done'); });
+    } catch (e) {
+      if (e !== CANCEL) throw e;
+    }
+  }
+  stageBtns.forEach((b) => b.addEventListener('click', () => play(Number(b.dataset.i))));
+  $('#replay').addEventListener('click', () => play(0));
+  pauseBtn.addEventListener('click', () => setPaused(!paused));
+  screen.addEventListener('click', () => setPaused(!paused));
+  addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'r') play(0);
+    if (e.key === 'p') setPaused(!paused);
+  });
+
+  /* ---------- Flows: who does what ---------- */
+  const FLOWS = [
+    {
+      tab: 'Your first scan', sub: 'One command to a report',
+      lanes: ['You', 'secagent'],
+      steps: [
+        [0, 'Run secagent', 'In your project folder. There are no flags to learn.'],
+        [1, 'Explains itself, asks what to check', 'Code, websites, servers. It says what it never does before it starts.'],
+        [0, 'List targets, say yes', 'The addresses to test, and a confirmation that you may test them.'],
+        [1, 'Scans only your list', 'Your yes is stored outside the repo. Each check ends passed, failed or could not verify.'],
+        [0, 'Read “Fix first”', 'The verdict, the urgent items with their fix, and a PDF, HTML and Markdown report.'],
+      ],
+      result: '<span class="lab">You end on</span> a home screen that says what to do next.',
+    },
+    {
+      tab: 'Check a server', sub: 'secagent never logs in',
+      lanes: ['You', 'secagent', 'Your server'],
+      steps: [
+        [0, 'List the server', 'A name, an address and an environment. Nothing is contacted yet.'],
+        [1, 'Writes the collector', 'A read-only shell script. Read it before it goes anywhere.'],
+        [2, 'You run it there', '<code>sudo sh collect.sh &gt; web-1.json</code> secagent has no access to this lane.'],
+        [0, 'Bring the output back', 'Add collector output. It is validated and stored. After 7 days it counts as stale.'],
+        [1, 'Checks the server', 'SSH, nginx, open ports, and packages with security fixes pending.'],
+      ],
+      result: '<span class="lab">You end with</span> findings that name the setting, the evidence and the fix.',
+    },
+    {
+      tab: 'Fix and prove it', sub: 'Fixed only when a scan says so',
+      lanes: ['You', 'secagent'],
+      steps: [
+        [1, 'Fix first', 'Where it is, why it matters, how to fix it, and the evidence.'],
+        [0, 'Fix it', 'In your code, your config or your headers. Your change, your review.'],
+        [1, 'Scan again', 'Compared with the last scan: what was fixed, what is new, what came back.'],
+        [0, 'Can’t fix today? Accept the risk', 'Give an owner, a reason and an end date. An AI assistant cannot do this.'],
+        [1, 'Keeps it in view', 'The home screen flags it a week before the date. After the date it counts as open again.'],
+      ],
+      result: '<span class="lab">Each scan reports</span> <span class="stamp ok">fixed</span> <span class="stamp ink">new</span> <span class="stamp">regressed</span>',
+    },
+    {
+      tab: 'With an AI assistant', sub: 'It helps. You and secagent decide.',
+      lanes: ['You', 'AI assistant', 'secagent'],
+      steps: [
+        [0, 'Connect it once', '<code>secagent mcp setup</code> prints the command. Run it.'],
+        [1, 'Asks for a scan', '“Run a security review of this project.” It reads the findings and explains them.'],
+        [2, 'Decides every status', 'From recorded evidence, inside your scope. Text from scanned systems is data, never instructions.'],
+        [1, 'Reviews what a scan can’t see', 'Works through the checklist with your code. Its answers are labelled as its own review.'],
+        [0, 'You decide risk', 'Only you accept a risk, approve a lesson or change what is probed.'],
+      ],
+      result: '<span class="lab">The report says</span> “Run by an AI assistant through the MCP server”.',
+    },
+  ];
+
+  const tabsEl = $('#flowtabs');
+  const diagram = $('#diagram');
+  const resultEl = $('#result');
+  let current = 0;
+  let nodes = [];
+  let wires = [];
+  let svg = null;
+  let flowGen = 0;
+
+  tabsEl.innerHTML = FLOWS.map((f, i) => `<button type="button" role="tab" data-i="${i}" aria-selected="${i === 0}"><strong>${esc(f.tab)}</strong><span>${esc(f.sub)}</span></button>`).join('');
+
+  const NS = 'http://www.w3.org/2000/svg';
+  function mount(i) {
+    const f = FLOWS[i];
+    current = i;
+    $$('button', tabsEl).forEach((b, k) => b.setAttribute('aria-selected', String(k === i)));
+    resultEl.innerHTML = f.result;
+    diagram.innerHTML = '';
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    f.lanes.forEach((name, l) => {
+      const band = document.createElement('div');
+      band.className = 'lane-band';
+      band.style.gridRow = String(l + 1);
+      const label = document.createElement('div');
+      label.className = `lane-label${name === 'You' ? ' me' : ''}`;
+      label.style.gridRow = String(l + 1);
+      label.style.gridColumn = '1';
+      label.textContent = name;
+      grid.append(band, label);
+    });
+    nodes = f.steps.map(([lane, title, text], k) => {
+      const n = document.createElement('article');
+      n.className = 'node lit';
+      n.style.setProperty('--c', String(k + 2));
+      n.style.setProperty('--r', String(lane + 1));
+      n.innerHTML = `<div class="top">${tent(k + 1)}<span class="who">${esc(f.lanes[lane])}</span></div><h3>${esc(title)}</h3><p>${text}</p>`;
+      grid.append(n);
+      return n;
+    });
+    svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'wires');
+    svg.setAttribute('aria-hidden', 'true');
+    wires = nodes.slice(1).map(() => {
+      const base = document.createElementNS(NS, 'path');
+      base.setAttribute('class', 'base');
+      const flow = document.createElementNS(NS, 'path');
+      flow.setAttribute('class', 'flow lit');
+      flow.setAttribute('pathLength', '1');
+      const head = document.createElementNS(NS, 'path');
+      head.setAttribute('class', 'head lit');
+      svg.append(base, flow, head);
+      return { base, flow, head };
+    });
+    grid.append(svg);
+    diagram.append(grid);
+    drawWires();
+  }
+
+  /* Elbow connectors from each step's right edge to the next step's left edge, with rounded corners. */
+  function drawWires() {
+    if (!svg || getComputedStyle(svg).display === 'none') return;
+    nodes.slice(0, -1).forEach((a, i) => {
+      const b = nodes[i + 1];
+      const x1 = a.offsetLeft + a.offsetWidth;
+      const y1 = a.offsetTop + a.offsetHeight / 2;
+      const x2 = b.offsetLeft - 2;
+      const y2 = b.offsetTop + b.offsetHeight / 2;
+      const xm = (x1 + x2) / 2;
+      const r = Math.min(12, Math.abs(y2 - y1) / 2);
+      const dir = y2 > y1 ? 1 : -1;
+      const d = Math.abs(y2 - y1) < 2
+        ? `M${x1} ${y1}H${x2}`
+        : `M${x1} ${y1}H${xm - r}Q${xm} ${y1} ${xm} ${y1 + dir * r}V${y2 - dir * r}Q${xm} ${y2} ${xm + r} ${y2}H${x2}`;
+      const w = wires[i];
+      w.base.setAttribute('d', d);
+      w.flow.setAttribute('d', d);
+      w.head.setAttribute('d', `M${x2 - 8} ${y2 - 5}L${x2 + 1} ${y2}L${x2 - 8} ${y2 + 5}z`);
+    });
+  }
+
+  /* Plays a flow step by step: each step lights, then the wire to the next one draws. Ends fully lit. */
+  async function playFlow() {
+    const mine = ++flowGen;
+    const pause = (ms) => new Promise((ok) => setTimeout(ok, ms));
+    nodes.forEach((n) => n.classList.remove('lit'));
+    wires.forEach((w) => { w.flow.classList.remove('lit'); w.head.classList.remove('lit'); });
+    for (let i = 0; i < nodes.length; i++) {
+      await pause(i === 0 ? 150 : 650);
+      if (mine !== flowGen) return;
+      nodes[i].classList.add('lit');
+      const w = wires[i];
+      if (w) { await pause(300); if (mine !== flowGen) return; w.flow.classList.add('lit'); w.head.classList.add('lit'); }
+    }
+  }
+
+  tabsEl.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    mount(Number(b.dataset.i));
+    if (!reduce) playFlow();
+  });
+  if ('ResizeObserver' in window) new ResizeObserver(drawWires).observe(diagram);
+  addEventListener('resize', drawWires);
+  mount(0);
+  if (!reduce && 'IntersectionObserver' in window) {
+    const once = new IntersectionObserver((entries) => {
+      if (entries.some((en) => en.isIntersecting)) { once.disconnect(); playFlow(); }
+    }, { threshold: 0.45 });
+    once.observe(diagram);
+  }
+
+  /* ---------- Nav: mark the section in view ---------- */
+  const links = $$('#spy a');
+  if ('IntersectionObserver' in window) {
+    const spy = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue;
+        links.forEach((a) => a.setAttribute('aria-current', String(a.getAttribute('href') === `#${en.target.id}`)));
+      }
+    }, { rootMargin: '-40% 0px -55% 0px' });
+    links.forEach((a) => { const s = $(a.getAttribute('href')); if (s) spy.observe(s); });
+  }
+
+  /* ---------- Copy buttons ---------- */
+  for (const btn of $$('[data-copy]')) {
+    btn.addEventListener('click', async () => {
+      const label = $('.act', btn);
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        label.textContent = 'Copied';
+      } catch {
+        getSelection().selectAllChildren(btn.firstElementChild);
+        label.textContent = 'Press Ctrl+C';
+      }
+      setTimeout(() => { label.textContent = 'Copy'; }, 1600);
+    });
+  }
+
+  play(reduce ? 2 : 0);
+})();
+</script>
+</body>
+</html>
