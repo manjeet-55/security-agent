@@ -36,7 +36,7 @@ TypeScript on Node 20+, three runtime dependencies besides the MCP SDK (`yaml`, 
 | Evidence and findings | `src/evidence/`, `src/findings/` | recorded observations, stable finding ids, diff between scans, accepted risks |
 | Report | `src/report/` | one block model, two renderers (Markdown, PDF) |
 | Knowledge base | `knowledge/`, `src/kb/` | seven sourced lessons from real remediations, per-project lessons and exceptions |
-| MCP server | `src/mcp/` | 16 tools and a `security_review` prompt over stdio; cannot change what is probed, accept a risk or add a server snapshot; scanned text is marked untrusted |
+| MCP server | `src/mcp/` | 15 tools and a `security_review` prompt over stdio; cannot change what is probed, accept a risk or add a server snapshot; scanned text is marked untrusted |
 | Agent layer | `agent/` | the playbook AI clients follow, and a Claude Code plugin with a `/security-review` command |
 | Host collector | `assets/collector.sh` | read-only script run on a server, output validated and stored |
 
@@ -44,11 +44,14 @@ About 1,000 automated tests, including real HTTPS/TLS servers, real git reposito
 
 ## Try it
 
-`docs/demo.md` is a five-minute script: a sample project that leaks in four ways plus a deliberately weak local website. `README.md` has install and usage; `docs/mcp.md` covers AI-client setup.
+`docs/demo.md` is a five-minute script: a sample project that leaks in four ways plus a deliberately weak local website. `README.md` has install and a summary; `docs/usage.md` is the full guide to the workflow and every option; `docs/mcp.md` covers AI-client setup.
 
 ## Limits and next steps
 
 - Learning is reviewed, not automatic: an AI assistant can propose a lesson that quotes an allowlisted page word for word, and it stays pending until a person approves it. New check types are still written by people.
 - Server checks need the collector's output from a person with access to the server; secagent never logs in.
 - Dependency scanning covers npm (`package-lock.json`) only; other ecosystems are not checked yet.
-- No license has been chosen yet.
+- Package advisories cover Ubuntu and Debian only; Amazon Linux and other systems report them as "could not verify".
+- It checks only the addresses it is given; it does not discover endpoints, subdomains or public APIs on its own.
+
+Released under the MIT license ([LICENSE](../LICENSE)).

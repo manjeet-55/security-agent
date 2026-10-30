@@ -4,6 +4,8 @@ A security check you run from the terminal, inside the project it checks. It ask
 
 It is deterministic: no AI model and no API key, and the same inputs give the same result. Your code, files and secrets never leave your machine. A scan sends requests to the websites and servers you list; the npm dependency check and the server checks look up package names and versions in public advisory databases (OSV, Ubuntu Security, CISA). (An AI assistant can drive it through MCP, see below; it still decides nothing.)
 
+**New here?** [docs/usage.md](docs/usage.md) is the full guide: the workflow, how to scan code, websites and servers, every command and option, the report, and CI use.
+
 ## Install
 
 Needs Node 20.19 or newer.
@@ -107,6 +109,22 @@ prints the findings, writes the reports, and exits 1 when an open finding is hig
 
 `.secagent/project.yaml` lists the only websites and servers secagent will touch; the code checks read the project folder and its git history.
 
+## Scope and limits
+
+What it does and does not do, so a clean report is read correctly:
+
+- **It checks what you list.** Websites, APIs and servers go in `.secagent/project.yaml` (the guided scan writes it). Anything else is refused, redirects are not followed, and cloud-metadata addresses are never probed. It does not discover other sites, subdomains or endpoints by itself.
+- **It is read-only.** `GET`/`HEAD` requests, TLS handshakes and TCP connection tests. No logins, no guessing, no injection or fuzzing tests, so it does not test authorisation or business logic.
+- **Hosting is irrelevant for websites and APIs.** EC2, Vercel, Netlify or on-premises: list the public URL.
+- **Dependency scanning is npm only** (`package-lock.json`). Other ecosystems are not checked yet.
+- **Server package advisories cover Ubuntu and Debian only.** Amazon Linux and other systems report those checks as "could not verify" (see [docs/usage.md](docs/usage.md#scanning-a-server)).
+- **Server checks need a snapshot** a person collects with the read-only collector; secagent never logs in. Snapshots older than 7 days are marked stale.
+- **A clean report means "no issue found by these checks".** Checks that could not run are listed apart and never counted as passed.
+
+## Responsible use
+
+Scan only systems you own or have written permission to test. secagent asks for that confirmation before it touches any website or server and records it on your machine, and its requests carry a `secagent` user agent so the owner can recognise them. It is a self-assessment tool, not a penetration-testing or exploitation tool.
+
 ## Try it with the demo
 
 `docs/demo.md` is a five-minute script with a sample project that leaks in four ways and a deliberately weak local website:
@@ -126,4 +144,8 @@ npm run typecheck
 
 The `secagent` command (after `npm link`) runs the built files in `dist/`, not the sources. After changing the code or pulling new commits, run `npm run build` (or `npm install`, which builds too), or new commands will answer "Unknown command". `npm run dev -- <command>` runs the sources directly.
 
-The design is in `docs/superpowers/specs/`: `2026-10-29-secagent-guided-agent-design.md` for the guided scan and reports, `2026-10-28-secagent-design.md` for the checks.
+The design is in `docs/superpowers/specs/`: `2026-10-29-secagent-guided-agent-design.md` for the guided scan and reports, `2026-10-28-secagent-design.md` for the checks. Working on the code with an AI assistant: start from [AGENTS.md](AGENTS.md) (also `CLAUDE.md`).
+
+## License
+
+[MIT](LICENSE).
