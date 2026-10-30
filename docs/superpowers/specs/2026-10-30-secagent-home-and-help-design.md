@@ -24,7 +24,7 @@ This work adds a presentation layer. It does not change behaviour below it.
 - **Consent works as today.** A rescan in the same session reuses that session's consent; a new session asks again before probing; accepting a risk triggers a rescan.
 - **Secret values are never shown.** Home-screen text uses the same finding fields as the report.
 - **No new dependencies.**
-- **Tests:** existing tests pass unchanged, except the wizard tests that cover the two menus this work moves (the end-of-run "What next?" menu and the "already set up" question).
+- **Tests:** existing tests pass unchanged, except the wizard tests that cover the first run's new intro question and the two menus this work moves (the end-of-run "What next?" menu and the "already set up" question), and the CLI test for the help text.
 
 ## 3. First run
 
@@ -71,7 +71,7 @@ Every later run of `secagent` goes straight to the home screen, which also follo
 | Accepted risks, and the soonest expiry | `loadExceptions`, `activeException` |
 | Lessons waiting for review | `pendingLessons` |
 | Checklist exported | `.secagent/reports/checklist.md` exists |
-| Settings changed since the last scan | `project.yaml` modified after the last scan's `scanned_at` |
+| Websites and servers with no result in the last scan | `project.yaml` targets and hosts against the last scan's results |
 
 ```
 secagent · my-shop  (Next.js, git)
@@ -92,7 +92,7 @@ An invalid `project.yaml` shows the error and how to fix it, and exits 1, as the
 2. A listed server has no collector output, or it is stale: add that server's collector output.
 3. Open critical or high findings: see what to fix first.
 4. An accepted risk expires within 7 days: open "Accepted risks" (it says which one, and that it counts as open again after that date).
-5. The last scan is older than 7 days, or the settings changed since: scan again.
+5. A listed website or server has no result in the last scan, or the last scan is older than 7 days: scan again.
 6. The checklist has not been exported: review what the scan can't see.
 7. Otherwise: nothing pressing, scan again after the next deploy.
 
@@ -139,7 +139,7 @@ Answers are not recorded. That is a possible follow-up, not part of this work.
 
 ### 4.5 Errors
 
-An action that fails (an unreadable or invalid collector file, a malformed CVE id, an advisory source that cannot be reached, a `KbError`) prints the message in plain words and returns to the home screen; it never exits. The errors the wizard handles today (`ProjectConfigError`, `ScopeError`, `CatalogError`, `ObservationError`) keep their current handling. Ctrl+C exits with 130, as today.
+An action that fails (an unreadable or invalid collector file, a malformed CVE id, an advisory source that cannot be reached, a `KbError`) prints the message in plain words and returns to the home screen; it never exits. Errors from a scan (Scan again, settings) keep the wizard's current handling (`ProjectConfigError`, `ScopeError`, `CatalogError`, `ObservationError`, `KbError`: message, exit 1). Ctrl+C exits with 130, as today.
 
 ## 5. Agent voice
 
@@ -182,7 +182,7 @@ Commands
   Setup                doctor, init, version
   CI and maintainers   eval, kb review, kb index
 
-Guides     secagent help <guide>     start · servers · ai · ci · safety
+Guides     secagent help <guide>     first-scan · servers · ai · ci · safety
 Details    secagent help <command>   or  secagent <command> --help
 ```
 
@@ -191,7 +191,7 @@ Details    secagent help <command>   or  secagent <command> --help
 - `secagent help <command>` and `secagent <command> --help` / `-h` print the command page: summary, usage, every option with its description, examples, see also. For `snapshot add`, `mcp setup`, `kb review` and `kb index`, both `secagent help snapshot` and `secagent snapshot --help` work.
 - `--help` is handled before the command runs, so it never scans, writes or connects.
 - Guides (`src/help/topics.ts`) are short numbered steps for jobs that take more than one command:
-  - `start`: first scan to report, and what to do with the report.
+  - `first-scan`: first scan to report, and what to do with the report. (Not `start`, which is a command.)
   - `servers`: write the collector, read it, run it on the server, bring the output back, add it, scan.
   - `ai`: connect Claude Code or another MCP client, and what to ask it.
   - `ci`: `secagent scan --only code --fail-on high`, with a workflow example.
