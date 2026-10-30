@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { existsSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseArgs } from 'node:util';
+import { parseArgs, type ParseArgsConfig } from 'node:util';
 import { defaultCacheDir } from './advisories/cache.js';
 import { distroOf } from './advisories/distro.js';
 import { createAdvisories } from './advisories/index.js';
@@ -26,7 +26,10 @@ import { createStyle } from './ui/style.js';
 import { runWizard } from './wizard/run.js';
 import { recordConsent } from './project/consent.js';
 import { runMcpStdio } from './mcp/server.js';
-import { doctor } from './doctor.js';
+import { mcpSetupLines } from './mcp/setup.js';
+import { findCommand, type CommandHelp } from './help/commands.js';
+import { renderCommand, renderHelp, renderOverview, unknownCommand } from './help/render.js';
+import { doctor, formatDoctor } from './doctor.js';
 import { evaluate, EvalError } from './eval.js';
 import { acceptRisk } from './kb/accept.js';
 import { approveLesson, pendingLessons, rejectLesson } from './kb/write.js';
@@ -38,7 +41,8 @@ import { loadCheckInstances } from './checks/catalog.js';
 import { CHECK_TYPES } from './checks/registry.js';
 import { GLOBAL_CHECKS_DIR, GLOBAL_KNOWLEDGE_DIR, GLOBAL_LESSONS_DIR, packageVersion } from './paths.js';
 import { SEVERITIES, SEVERITY_RANK, type Severity } from './types.js';
-import { verifyClaim, type ClaimResult } from './verify/claim.js';
+import { verifyClaim } from './verify/claim.js';
+import { formatClaim } from './verify/format.js';
 import { loadReportInput } from './report/model.js';
 import { writeReport, type ReportFormat } from './report/write.js';
 
@@ -49,48 +53,41 @@ export class UsageError extends Error {
   }
 }
 
-const USAGE = `secagent <command> [options]
-
-Commands:
-  version    Print the version
-  start   Guided scan: asks what to check, scans, and writes a Markdown and PDF report (default when run with no command)
-            --dir <path>           project directory (default: .)
-  init    Create .secagent/ in a project, detect its stack, write project.yaml
-            --dir <path>           project directory (default: .)
-            --name <name>          project name (default: directory name)
-            --scan-label <label>   name of the network you scan from, e.g. office
-            --target <spec>        id=https://host,web|api,env   (repeatable)
-            --host <spec>          name=address,env              (repeatable)
-  scan    Run every check against the code, targets and hosts in project.yaml and write the report
-            --dir <path>
-            --no-ai                accepted and ignored: a scan never uses AI
-            --fail-on <severity>   exit 1 when an open finding is at this severity or above (for CI)
-            --only <groups>        run only code, web or host (repeatable or comma-separated); the rest of the last scan is kept
-  collector  Print the read-only host collector script (stdout) and how to run it (stderr)
-            --dir <path>   --host <name>   --out <file>
-  snapshot add  Validate and store collector output for a host
-            --dir <path>   --host <name>   <file>
-  verify     Verdict on a scanner's CVE claim for a host, from its snapshot and distro advisories
-            --dir <path>   --host <name>   --cve <CVE-id>   [--package <name>]   [--json]
-  learn      Refresh CISA KEV and the package advisories for every stored host snapshot
-            --dir <path>
-  report     Re-render the report of the latest scan (.secagent/reports/latest.*)
-            --dir <path>
-  accept     Accept the risk of an open finding until a date (a person's decision; the next scan reports it as accepted)
-            <finding-id>   --owner <name>   --reason <text>   --until <YYYY-MM-DD>   --dir <path>
-  checklist  Print the security review checklist: what to check in the code and configuration that the scan cannot decide
-            --dir <path>   --area <surface|auth|input|secrets|infra> (repeatable)   --out <file>
-  eval       Compare the latest scan with an expected-results file; exit 1 on any difference
-            <expected.yaml>   --dir <path>
-  kb review  List lessons an AI assistant proposed; approve or reject one
-            [--approve <id> --by <name>]   [--reject <id>]   --dir <path>
-  kb index   Regenerate knowledge/INDEX.md from the lessons and checks (for maintainers)
-  doctor     Check this machine and project for what usually goes wrong, and say how to fix it
-            --dir <path>   --offline
-  mcp setup  Print the exact command that connects Claude Code or another AI client to this project
-  mcp        Serve this project to an AI client (MCP over stdio): run_scan, get_findings, get_report, get_evidence, verify_claim
-            --dir <path>
-`;
+/** Each command's options, exactly as its parser takes them. `secagent help` documents the same names (test/cli.test.ts checks). */
+export const OPTIONS = {
+  start: { dir: { type: 'string', default: '.' } },
+  init: {
+    dir: { type: 'string', default: '.' },
+    name: { type: 'string' },
+    'scan-label': { type: 'string' },
+    target: { type: 'string', multiple: true },
+    host: { type: 'string', multiple: true },
+  },
+  scan: {
+    dir: { type: 'string', default: '.' },
+    'no-ai': { type: 'boolean', default: false },
+    only: { type: 'string', multiple: true },
+    'fail-on': { type: 'string' },
+  },
+  report: { dir: { type: 'string', default: '.' } },
+  accept: { dir: { type: 'string', default: '.' }, owner: { type: 'string' }, reason: { type: 'string' }, until: { type: 'string' } },
+  checklist: { dir: { type: 'string', default: '.' }, area: { type: 'string', multiple: true }, out: { type: 'string' } },
+  collector: { dir: { type: 'string', default: '.' }, host: { type: 'string' }, out: { type: 'string' } },
+  'snapshot add': { dir: { type: 'string', default: '.' }, host: { type: 'string' } },
+  verify: {
+    dir: { type: 'string', default: '.' },
+    host: { type: 'string' },
+    cve: { type: 'string' },
+    package: { type: 'string' },
+    json: { type: 'boolean', default: false },
+  },
+  learn: { dir: { type: 'string', default: '.' } },
+  'mcp setup': { dir: { type: 'string', default: '.' } },
+  mcp: { dir: { type: 'string', default: '.' } },
+  doctor: { dir: { type: 'string', default: '.' }, offline: { type: 'boolean', default: false } },
+  eval: { dir: { type: 'string', default: '.' } },
+  'kb review': { dir: { type: 'string', default: '.' }, approve: { type: 'string' }, reject: { type: 'string' }, by: { type: 'string' } },
+} as const satisfies Record<string, NonNullable<ParseArgsConfig['options']>>;
 
 export function parseTargetSpec(spec: string): { id: string; url: string; type: 'web' | 'api'; env: string } {
   const match = /^([a-z0-9][a-z0-9-]*)=(https?:\/\/[^,]+),(web|api),([^,]+)$/.exec(spec);
@@ -129,13 +126,7 @@ async function runInit(args: string[]): Promise<number> {
   const { values } = parseArgs({
     args,
     strict: true,
-    options: {
-      dir: { type: 'string', default: '.' },
-      name: { type: 'string' },
-      'scan-label': { type: 'string' },
-      target: { type: 'string', multiple: true },
-      host: { type: 'string', multiple: true },
-    },
+    options: OPTIONS.init,
   });
   const targets = (values.target ?? []).map(parseTargetSpec);
   const hosts = (values.host ?? []).map(parseHostSpec);
@@ -169,12 +160,7 @@ async function runScan(args: string[], deps: CliDeps): Promise<number> {
   const { values } = parseArgs({
     args,
     strict: true,
-    options: {
-      dir: { type: 'string', default: '.' },
-      'no-ai': { type: 'boolean', default: false },
-      only: { type: 'string', multiple: true },
-      'fail-on': { type: 'string' },
-    },
+    options: OPTIONS.scan,
   });
   // --no-ai is accepted for older scripts: the scan never uses AI.
   const failOn = values['fail-on'];
@@ -222,7 +208,7 @@ async function runAccept(args: string[], deps: CliDeps): Promise<number> {
     args,
     strict: true,
     allowPositionals: true,
-    options: { dir: { type: 'string', default: '.' }, owner: { type: 'string' }, reason: { type: 'string' }, until: { type: 'string' } },
+    options: OPTIONS.accept,
   });
   const [findingId] = positionals;
   if (!findingId || positionals.length !== 1 || !values.owner || !values.reason || !values.until) throw new UsageError(usage);
@@ -232,7 +218,7 @@ async function runAccept(args: string[], deps: CliDeps): Promise<number> {
 }
 
 async function runEval(args: string[]): Promise<number> {
-  const { values, positionals } = parseArgs({ args, strict: true, allowPositionals: true, options: { dir: { type: 'string', default: '.' } } });
+  const { values, positionals } = parseArgs({ args, strict: true, allowPositionals: true, options: OPTIONS.eval });
   if (positionals.length !== 1) throw new UsageError('Usage: secagent eval <expected.yaml> [--dir <path>]');
   const rows = await evaluate(path.resolve(values.dir), path.resolve(positionals[0] as string));
   for (const r of rows) console.log(`${r.ok ? 'ok  ' : 'DIFF'}  ${r.id}  expected ${r.expected.join(' or ')}, got ${r.actual}`);
@@ -242,7 +228,7 @@ async function runEval(args: string[]): Promise<number> {
 }
 
 async function runKbReview(args: string[], deps: CliDeps): Promise<number> {
-  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' }, approve: { type: 'string' }, reject: { type: 'string' }, by: { type: 'string' } } });
+  const { values } = parseArgs({ args, strict: true, options: OPTIONS['kb review'] });
   const dir = path.resolve(values.dir);
   const now = deps.now ? deps.now() : new Date();
   if (values.approve) {
@@ -287,7 +273,7 @@ async function runChecklist(args: string[]): Promise<number> {
   const { values } = parseArgs({
     args,
     strict: true,
-    options: { dir: { type: 'string', default: '.' }, area: { type: 'string', multiple: true }, out: { type: 'string' } },
+    options: OPTIONS.checklist,
   });
   const areas = (values.area ?? []).flatMap((a) => a.split(',')).map((a) => a.trim()).filter(Boolean);
   const lists = selectAreas(await loadShippedChecklists(await loadCheckInstances(GLOBAL_CHECKS_DIR, CHECK_TYPES)), areas);
@@ -302,36 +288,21 @@ async function runChecklist(args: string[]): Promise<number> {
 }
 
 async function runDoctor(args: string[], deps: CliDeps): Promise<number> {
-  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' }, offline: { type: 'boolean', default: false } } });
-  const lines = await doctor(path.resolve(values.dir), { now: deps.now ?? (() => new Date()), offline: values.offline });
-  const mark = { ok: '✓', warn: '!', fail: '✗' } as const;
-  for (const l of lines) {
-    console.log(`${mark[l.level]} ${l.text}`);
-    if (l.fix) console.log(`    ${l.fix}`);
-  }
-  const fails = lines.filter((l) => l.level === 'fail').length;
-  const warns = lines.filter((l) => l.level === 'warn').length;
-  console.log(fails > 0 ? `\n${fails} problem(s) to fix.` : warns > 0 ? `\nWorks, with ${warns} thing(s) worth a look.` : '\nAll good.');
-  return fails > 0 ? 1 : 0;
+  const { values } = parseArgs({ args, strict: true, options: OPTIONS.doctor });
+  const { lines, code } = formatDoctor(await doctor(path.resolve(values.dir), { now: deps.now ?? (() => new Date()), offline: values.offline }));
+  for (const line of lines) console.log(line);
+  return code;
 }
 
 function mcpSetup(args: string[]): number {
-  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
-  const dir = path.resolve(values.dir);
-  const entry = process.argv[1] ? realpathSync(process.argv[1]) : '';
-  const onPath = (process.env.PATH ?? '').split(path.delimiter).some((d) => d !== '' && existsSync(path.join(d, 'secagent')));
-  const command = onPath ? ['secagent'] : [process.execPath, entry];
-  const shown = (xs: string[]) => xs.map((x) => (/\s/.test(x) ? JSON.stringify(x) : x)).join(' ');
-  console.log(`Connect an AI client to ${dir}\n`);
-  console.log(`Claude Code:\n  claude mcp add secagent -- ${shown([...command, 'mcp', '--dir', dir])}\n`);
-  console.log(`Other clients (a JSON config such as .mcp.json):\n${JSON.stringify({ mcpServers: { secagent: { command: command[0], args: [...command.slice(1), 'mcp', '--dir', dir] } } }, null, 2)}\n`);
-  console.log('Then ask your assistant: "Run a security review of this project". It needs the folder set up first (run `secagent` here once).');
+  const { values } = parseArgs({ args, strict: true, options: OPTIONS['mcp setup'] });
+  for (const line of mcpSetupLines(path.resolve(values.dir))) console.log(line);
   return 0;
 }
 
 async function runMcp(args: string[], deps: CliDeps): Promise<number> {
   if (args[0] === 'setup') return mcpSetup(args.slice(1));
-  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  const { values } = parseArgs({ args, strict: true, options: OPTIONS.mcp });
   const dir = path.resolve(values.dir);
   await loadProject(dir);
   await runMcpStdio({ projectDir: dir, ...clockOf(deps), ...(deps.advisories ? { advisories: deps.advisories } : {}) });
@@ -339,7 +310,7 @@ async function runMcp(args: string[], deps: CliDeps): Promise<number> {
 }
 
 async function runReport(args: string[]): Promise<number> {
-  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  const { values } = parseArgs({ args, strict: true, options: OPTIONS.report });
   await printReport(path.resolve(values.dir));
   return 0;
 }
@@ -362,24 +333,11 @@ function clockOf(deps: CliDeps): { now?: () => Date } {
   return deps.now ? { now: deps.now } : {};
 }
 
-export function formatClaim(r: ClaimResult): string[] {
-  return [
-    `${r.cve} on ${r.host}: ${r.verdict}${r.kev === true ? ' (CISA KEV: known exploited)' : ''}`,
-    `  ${r.reason}`,
-    ...r.packages.map(
-      (p) => `  ${p.package}: installed ${p.installed ?? '-'}, distro status ${p.distro_status}${p.fixed ? `, fixed in ${p.fixed}` : ''} → ${p.verdict}`,
-    ),
-    ...(r.source_url ? [`  source: ${r.source_url}`] : []),
-    ...(r.as_of ? [`  advisories as of ${r.as_of.slice(0, 10)}${r.stale ? ' (STALE: cached copy, source unreachable)' : ''}`] : []),
-    `  evidence: ${r.evidence_id}`,
-  ];
-}
-
 async function runCollector(args: string[]): Promise<number> {
   const { values } = parseArgs({
     args,
     strict: true,
-    options: { dir: { type: 'string', default: '.' }, host: { type: 'string' }, out: { type: 'string' } },
+    options: OPTIONS.collector,
   });
   const dir = path.resolve(values.dir);
   if (values.host) new Scope(await loadProject(dir)).host(values.host);
@@ -402,7 +360,7 @@ async function runSnapshot(args: string[], deps: CliDeps): Promise<number> {
     args: rest,
     strict: true,
     allowPositionals: true,
-    options: { dir: { type: 'string', default: '.' }, host: { type: 'string' } },
+    options: OPTIONS['snapshot add'],
   });
   const file = positionals[0];
   if (!values.host || !file) throw new UsageError(usage);
@@ -418,13 +376,7 @@ async function runVerify(args: string[], deps: CliDeps): Promise<number> {
   const { values } = parseArgs({
     args,
     strict: true,
-    options: {
-      dir: { type: 'string', default: '.' },
-      host: { type: 'string' },
-      cve: { type: 'string' },
-      package: { type: 'string' },
-      json: { type: 'boolean', default: false },
-    },
+    options: OPTIONS.verify,
   });
   if (!values.host || !values.cve) throw new UsageError('Usage: secagent verify --host <name> --cve <CVE-id> [--package <name>] [--dir <path>] [--json]');
   if (!/^CVE-\d{4}-\d{4,}$/i.test(values.cve.trim())) throw new UsageError(`--cve must look like CVE-2024-6387 (got "${values.cve}")`);
@@ -447,7 +399,7 @@ async function runVerify(args: string[], deps: CliDeps): Promise<number> {
 }
 
 async function runLearn(args: string[], deps: CliDeps): Promise<number> {
-  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  const { values } = parseArgs({ args, strict: true, options: OPTIONS.learn });
   const dir = path.resolve(values.dir);
   const project = await loadProject(dir);
   const advisories = deps.advisories ?? createAdvisories(clockOf(deps));
@@ -475,7 +427,7 @@ async function runLearn(args: string[], deps: CliDeps): Promise<number> {
 
 /** The guided scan, on the terminal unless a prompter was injected. */
 async function runStart(args: string[], deps: CliDeps): Promise<number> {
-  const { values } = parseArgs({ args, strict: true, options: { dir: { type: 'string', default: '.' } } });
+  const { values } = parseArgs({ args, strict: true, options: OPTIONS.start });
   const out = deps.out ?? process.stdout;
   const style = createStyle(out as { isTTY?: boolean });
   const dir = path.resolve(values.dir);
@@ -492,9 +444,36 @@ function isTerminal(deps: CliDeps): boolean {
   return deps.tty ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
+/** The page for `secagent <command> [sub-command] ...`: words before the options name it. */
+function pageFor(command: string, rest: readonly string[]): CommandHelp | undefined {
+  return findCommand([command, ...rest.filter((a) => !a.startsWith('-'))]);
+}
+
+/** Where to read more after a usage error: the command's page, and for a bad option its usage line too. */
+function helpHint(command: string, rest: readonly string[], withUsage: boolean): string {
+  const page = pageFor(command, rest);
+  if (!page) return 'Run secagent help to see every command.';
+  return `${withUsage ? `Usage: ${page.usage}\n` : ''}Run secagent help ${page.name} for details.`;
+}
+
+function runHelp(words: readonly string[]): number {
+  const { ok, text } = renderHelp(words);
+  if (ok) console.log(text);
+  else console.error(text);
+  return ok ? 0 : 1;
+}
+
 export async function main(argv: readonly string[], deps: CliDeps = {}): Promise<number> {
   const [command, ...rest] = argv;
   try {
+    // `<command> --help` shows that command's page and runs nothing.
+    if (command !== undefined && (rest.includes('--help') || rest.includes('-h'))) {
+      const page = pageFor(command, rest);
+      if (page) {
+        console.log(renderCommand(page));
+        return 0;
+      }
+    }
     switch (command) {
       case 'start':
         if (!isTerminal(deps)) throw new UsageError('secagent start needs an interactive terminal. In scripts, use secagent init and secagent scan.');
@@ -527,7 +506,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
         return await runChecklist(rest);
       case undefined:
         if (isTerminal(deps)) return await runStart(rest, deps);
-        console.log(USAGE);
+        console.log(renderOverview());
         return 0;
       case '--version':
       case '-v':
@@ -537,10 +516,9 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
       case 'help':
       case '--help':
       case '-h':
-        console.log(USAGE);
-        return 0;
+        return runHelp(rest);
       default:
-        console.error(`Unknown command "${command}".\n\n${USAGE}`);
+        console.error(unknownCommand(command));
         return 1;
     }
   } catch (e) {
@@ -554,10 +532,12 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
       e instanceof ObservationError
     ) {
       console.error(e.message);
+      if (e instanceof UsageError && command !== undefined) console.error(helpHint(command, rest, false));
       return 1;
     }
     if (e instanceof TypeError && String((e as NodeJS.ErrnoException).code ?? '').startsWith('ERR_PARSE_ARGS')) {
-      console.error(`${e.message}\n\n${USAGE}`);
+      console.error(e.message);
+      if (command !== undefined) console.error(helpHint(command, rest, true));
       return 1;
     }
     throw e;
