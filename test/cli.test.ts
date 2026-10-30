@@ -148,7 +148,7 @@ describe('main', () => {
   });
 
   describe('guided scan', () => {
-    const answers = () => new ScriptedPrompter([undefined, ['code'], 'exit']);
+    const answers = () => new ScriptedPrompter([undefined, undefined, ['code'], 'exit']);
 
     it('start without a terminal says to use init and scan instead', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});

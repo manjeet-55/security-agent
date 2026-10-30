@@ -184,20 +184,19 @@ describe('askPlan', () => {
 
   describe('an existing project', () => {
     it('Scan again asks only for consent', async () => {
-      const p = new ScriptedPrompter(['again', true]);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter([true]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'again' }));
       p.done();
-      expect(p.asked).toEqual(['This project is already set up. What now?', 'I own these systems or have written permission to test them']);
+      expect(p.asked).toEqual(['I own these systems or have written permission to test them']);
       expect(plan?.groups).toEqual(['code', 'web', 'host']);
       expect(plan?.config).toEqual(existing());
     });
 
     it('Change settings starts from the current answers', async () => {
-      const p = new ScriptedPrompter(['change', undefined, undefined, true, false, undefined, true, false, true]);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter([undefined, undefined, true, false, undefined, true, false, true]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'change' }));
       p.done();
       expect(p.asked).toEqual([
-        'This project is already set up. What now?',
         'Project name',
         'What should I check?',
         'Keep these websites and APIs? https://portal.example.com',
@@ -213,8 +212,8 @@ describe('askPlan', () => {
     });
 
     it('declining consent on Scan again can fall back to the code only, leaving the saved settings alone', async () => {
-      const p = new ScriptedPrompter(['again', false, 'code']);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter([false, 'code']);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'again' }));
       p.done();
       expect(plan).toMatchObject({ groups: ['code'], snapshots: [] });
       expect(plan?.config).toEqual(existing());
@@ -222,34 +221,16 @@ describe('askPlan', () => {
     });
 
     it('declining consent on Scan again can go back into the questions', async () => {
-      const p = new ScriptedPrompter(['again', false, 'back', undefined, undefined, true, false, undefined, true, false, true]);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter([false, 'back', undefined, undefined, true, false, undefined, true, false, true]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'again' }));
       p.done();
       expect(plan?.consentAt).toEqual(NOW);
       expect(plan?.config.targets).toEqual(existing().targets);
     });
 
-    it('start: again goes straight to consent, without the "already set up" question', async () => {
-      const p = new ScriptedPrompter([true]);
-      const plan = await askPlan(p, deps({ existing: existing(), start: 'again' }));
-      p.done();
-      expect(p.asked).toEqual(['I own these systems or have written permission to test them']);
-      expect(plan?.config).toEqual(existing());
-    });
-
-    it('start: change and fresh skip the question too', async () => {
-      const change = new ScriptedPrompter([undefined, undefined, true, false, undefined, true, false, true]);
-      expect((await askPlan(change, deps({ existing: existing(), start: 'change' })))?.config.targets).toEqual(existing().targets);
-      change.done();
-      expect(change.asked[0]).toBe('Project name');
-      const fresh = new ScriptedPrompter(['newname', ['code']]);
-      expect((await askPlan(fresh, deps({ existing: existing(), start: 'fresh' })))?.config).toMatchObject({ name: 'newname', targets: [], hosts: [] });
-      fresh.done();
-    });
-
     it('Start over asks everything again with nothing kept', async () => {
-      const p = new ScriptedPrompter(['fresh', 'newname', ['code']]);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter(['newname', ['code']]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'fresh' }));
       p.done();
       expect(plan?.config).toMatchObject({ name: 'newname', targets: [], hosts: [] });
     });

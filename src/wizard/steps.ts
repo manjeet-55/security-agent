@@ -13,7 +13,8 @@ import { recordConsent } from '../project/consent.js';
 import { initProject } from '../project/init.js';
 import { saveProject, type ProjectConfig } from '../project/schema.js';
 import { detectStack, type StackDetection } from '../project/stack.js';
-import { AREA_LABEL, topFixes, verdict, whereOf, type Area, type ReportInput } from '../report/model.js';
+import { AREA_LABEL, loadReportInput, topFixes, verdict, whereOf, type Area, type ReportInput } from '../report/model.js';
+import { writeReport } from '../report/write.js';
 import { scanNoAi } from '../scan/no-ai.js';
 import type { Prompter } from '../ui/prompt.js';
 import { SYMBOL, type Style } from '../ui/style.js';
@@ -85,7 +86,7 @@ function scopeOf(plan: WizardPlan): string {
 }
 
 /** Runs the scan, printing one line per check as it finishes. */
-export async function scanWithProgress(dir: string, plan: WizardPlan, deps: WizardDeps): Promise<ScanRecord> {
+async function scanWithProgress(dir: string, plan: WizardPlan, deps: WizardDeps): Promise<ScanRecord> {
   const { out, style } = deps;
   let total = 0;
   let done = 0;
@@ -114,7 +115,7 @@ export async function scanWithProgress(dir: string, plan: WizardPlan, deps: Wiza
   });
 }
 
-export function showResult(record: ScanRecord, input: ReportInput, deps: WizardDeps): void {
+function showResult(record: ScanRecord, input: ReportInput, deps: WizardDeps): void {
   const { out, style } = deps;
   const v = verdict(record);
   out.write(`\n${toneOf(style, v.tone)(v.text)}\n`);
@@ -192,6 +193,17 @@ export async function reviewLessons(dir: string, deps: WizardDeps, now: () => Da
       out.write('Rejected and removed.\n');
     }
   }
+}
+
+/** Scans with live progress, writes the Markdown, PDF and HTML report, and shows the verdict and where the report is. */
+export async function scanAndReport(dir: string, plan: WizardPlan, deps: WizardDeps): Promise<void> {
+  const { out, style } = deps;
+  const record = await scanWithProgress(dir, plan, deps);
+  const input = await loadReportInput(dir);
+  if (!input) throw new Error('the scan did not leave a record to report on');
+  const [md, pdf, html] = (await writeReport(dir, input, { formats: ['md', 'pdf', 'html'] })).latest;
+  showResult(record, input, deps);
+  out.write(`\n${style.bold('Report')}\n  Markdown: ${md}\n  PDF:      ${pdf}\n  HTML:     ${html}\n`);
 }
 
 /** What the setup questions need: the folder, its stack, file reading and the collector writer. */

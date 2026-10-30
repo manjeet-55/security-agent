@@ -22,7 +22,7 @@ export interface WizardPlan {
 export interface AskDeps {
   dir: string;
   existing?: ProjectConfig;
-  /** For a project that is already set up: scan again with its settings, change them, or start over. Without it, I ask. */
+  /** For a project that is already set up: scan again with its settings (default), change them, or start over. */
   start?: 'again' | 'change' | 'fresh';
   detection: StackDetection;
   now: () => Date;
@@ -220,15 +220,7 @@ export async function askPlan(p: Prompter, deps: AskDeps): Promise<WizardPlan | 
   let snapshots: Draft['snapshots'] = [];
 
   if (existing) {
-    const action = deps.start ?? await p.select({
-      message: 'This project is already set up. What now?',
-      choices: [
-        { value: 'again' as const, label: 'Scan again with these settings' },
-        { value: 'change' as const, label: 'Change the settings' },
-        { value: 'fresh' as const, label: 'Start over' },
-      ],
-      default: 'again' as const,
-    });
+    const action = deps.start ?? 'again';
     if (action === 'again') {
       const groups = initialGroups(existing);
       const consentAt = await askConsent(p, deps, groups, existing.targets, existing.hosts);
