@@ -28,6 +28,8 @@ export interface WizardDeps {
   /** Injected network and advisory sources (tests); the scan uses the live ones otherwise. */
   net?: NetClient;
   advisories?: Advisories;
+  /** The setup check's request to the advisory database (tests); defaults to fetch. */
+  fetchImpl?: typeof fetch;
   /** Opens a file in the system viewer; false when that was not possible. */
   openFile?: (file: string) => Promise<boolean>;
 }
