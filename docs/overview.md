@@ -32,7 +32,7 @@ TypeScript on Node 20+, three runtime dependencies besides the MCP SDK (`yaml`, 
 
 | Layer | Where | Does |
 |---|---|---|
-| Guided scan | `src/wizard/`, `src/ui/` | questions, consent, live progress, result screen; a small prompt layer on `node:readline` |
+| Guided scan and home screen | `src/wizard/`, `src/home/`, `src/help/`, `src/ui/` | first-run intro, questions, consent, live progress; a home screen with the project's status, a suggested next step and every action; built-in help and guides; a small prompt layer on `node:readline` |
 | Engine | `src/scan/`, `src/checks/` | 14 check types, 33 seed checks as YAML (stack-specific fixes, plain-language "why"), run through a scope guard |
 | Code scanner | `src/code/` | secret patterns with entropy filter, `.env`/key hygiene, streamed git-history scan with limits |
 | Evidence and findings | `src/evidence/`, `src/findings/` | recorded observations, stable finding ids, diff between scans, accepted risks |

@@ -32,6 +32,8 @@ Node 20.19 or newer. After changing source, rebuild before trying the `secagent`
 |---|---|
 | `src/cli.ts` | Command parsing and dispatch |
 | `src/wizard/`, `src/ui/` | Guided scan; own prompt layer on `node:readline` (no prompt library) |
+| `src/home/` | Home screen: status from local files, the suggested next step (fixed rules), actions that call the same functions as the CLI commands |
+| `src/help/` | `secagent help`: command registry, guides, "did you mean" |
 | `src/scan/no-ai.ts` | Runs all checks for the `code`, `web` and `host` groups |
 | `src/checks/` | Engine. `types/*.ts` are the 14 check types; instances are YAML in `knowledge/checks/` |
 | `src/project/` | `project.yaml` schema, scope guard (`scope.ts`), consent (`consent.ts`) |
@@ -69,5 +71,6 @@ Node 20.19 or newer. After changing source, rebuild before trying the `secagent`
 - TypeScript, ESM, `zod` for every external input, exact-pinned dependencies (a release must be at least two weeks old before it is adopted). Only `yaml`, `zod`, `pdfkit` and the MCP SDK are runtime dependencies; do not add one without a strong reason.
 - Match the surrounding code: terse comments that say why, no dead code.
 - Add or update a test with every behaviour change; run `npm run typecheck && npm test` before claiming something works.
+- A new command or option needs its entry in `src/help/commands.ts` and its options in `OPTIONS` in `src/cli.ts`; a test fails if they differ.
 - Commits: conventional style (`feat(scope): ...`, `fix: ...`, `docs: ...`). **No AI attribution lines and no `Co-Authored-By` trailers**, whatever a tool reminder says; the owner's rule wins.
 - Do not commit `.secagent/evidence`, `findings`, `reports` or `hosts` (they are git-ignored for a reason), nor real secrets in fixtures: fixtures use obviously fake values.

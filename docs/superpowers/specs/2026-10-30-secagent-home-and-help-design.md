@@ -1,7 +1,7 @@
 # secagent: home screen and help
 
 - **Date:** 2026-10-30
-- **Status:** design approved, implementation not started
+- **Status:** implemented
 - **Builds on:** [2026-10-29-secagent-guided-agent-design.md](2026-10-29-secagent-guided-agent-design.md)
 
 ## 1. Problem

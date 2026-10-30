@@ -73,13 +73,40 @@ It asks, in this order:
 
 If you say no to permission, it offers to go back and change the answers, scan only the code, or quit.
 
-Then it scans with one line per check (`✓` passed, `✗` failed, `?` could not verify), shows the verdict and the first things to fix, and offers a menu: open the PDF or HTML report, accept the risk of a finding, review lessons an AI assistant proposed.
+Then it scans with one line per check (`✓` passed, `✗` failed, `?` could not verify), shows the verdict and the first things to fix, and opens the home screen. Before the questions you can choose **How secagent works first** to read the guides.
 
-Run `secagent` again in the same folder and choose:
+## The home screen
 
-- **Scan again with these settings**: same answers, fresh scan, with a comparison to the last one.
-- **Change the settings**: re-asks everything with the current answers as defaults.
-- **Start over**: forgets the saved settings.
+Every later run of `secagent` in the folder opens the home screen directly. It reads only local files:
+
+```
+secagent · my-shop  (nextjs, git)
+
+  Last scan   2 days ago · Needs attention: 1 high-priority issue(s) · high 1, medium 2
+  Websites    https://shop.example.com (prod)
+  Servers     web-1 (prod) · no collector output yet
+  Accepted    1 risk(s); the soonest ends in 5 day(s)
+
+  Next: web-1 has no collector output yet, so I cannot check its SSH, nginx or packages. Add it next.
+```
+
+**Next** is chosen by fixed rules, in this order: run the first scan; add a server's missing or stale collector output; fix open critical or high issues; look at an accepted risk that ends within 7 days; scan again when a listed site or server has no result yet or the last scan is over 7 days old; export the review checklist. The suggested item comes first in the menu.
+
+| Menu item | What it does |
+|---|---|
+| See what to fix first | The open issues, most urgent first; pick one for what was found, why it matters, the fix and the evidence |
+| Scan again | Same settings, fresh scan, compared with the last one. In a new session it asks for permission first |
+| Open the report | The PDF or HTML report |
+| Review what the scan can't see | Writes the review checklist for the areas that fit the project to `.secagent/reports/checklist.md` and says how to work through it |
+| Add a server's collector output | Writes the read-only collector, says how to run it, stores its output (as `secagent snapshot add`) |
+| Accepted risks | Lists them with their end dates; accept the risk of another finding |
+| Check a scanner's CVE claim | The same verdict as `secagent verify` |
+| Review lessons an AI assistant proposed | Approve or reject each |
+| Connect an AI assistant | The `secagent mcp setup` command and what to ask |
+| Settings and setup | Change what is checked, start over, or check this machine (`secagent doctor`) |
+| How secagent works | The step-by-step guides |
+
+An item shows only when it applies: without servers there is no collector or CVE item.
 
 ## Scanning without questions
 
@@ -248,6 +275,8 @@ hosts:
 
 ## Every command
 
+Every command has its own page: `secagent help <command>` or `secagent <command> --help`. Step-by-step guides: `secagent help first-scan`, `servers`, `ai`, `ci`, `safety`. A mistyped command gets a "Did you mean" suggestion.
+
 | Command | What it does |
 |---|---|
 | `secagent` / `secagent start [--dir]` | The guided scan (on a terminal) |
@@ -267,6 +296,7 @@ hosts:
 | `secagent kb review [--approve <id> --by <name>] [--reject <id>] [--dir]` | List, approve or reject lessons an AI assistant proposed |
 | `secagent kb index` | Regenerate `knowledge/INDEX.md` (maintainers) |
 | `secagent version` / `--version` | Print the version |
+| `secagent help [<command> \| <guide>]` | The overview, one command's page, or a guide |
 
 Environment variables: `SECAGENT_CACHE_DIR` (advisory cache, default `~/.cache/secagent/advisories`), `SECAGENT_CONFIG_DIR` (where the consent file lives, default `~/.config/secagent`), `NO_COLOR` (plain output).
 

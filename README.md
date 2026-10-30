@@ -36,7 +36,9 @@ Then it scans with one line per check, shows the verdict and the first three thi
 - `.secagent/reports/latest.md`
 - `.secagent/reports/latest.html` (one self-contained page, opens in any browser)
 
-Run `secagent` again in the same folder to scan again, change the answers, or start over.
+Run `secagent` again in the same folder for the home screen: where the project stands (last scan, open issues, servers waiting for collector output, accepted risks about to end), the step it suggests next and why, and a menu for everything else: what to fix first, scan again, the review checklist for what the scan can't see, a server's collector output, a scanner's CVE claim, connecting an AI assistant, settings.
+
+Help is built in: `secagent help` (where to start, and every command by task), `secagent help <command>` or `secagent <command> --help`, and step-by-step guides: `secagent help first-scan`, `servers`, `ai`, `ci`, `safety`.
 
 ## What it checks
 
@@ -94,7 +96,7 @@ prints the findings, writes the reports, and exits 1 when an open finding is hig
 
 ## Commands for scripts and CI
 
-`secagent` with no command only starts the guided scan on a terminal; elsewhere it prints this list.
+`secagent` with no command starts the guided scan on a terminal; elsewhere it prints the help overview. Every command has a page: `secagent help <command>`.
 
 | Command | What it does |
 |---|---|
