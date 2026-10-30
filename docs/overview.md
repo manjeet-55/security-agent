@@ -15,6 +15,8 @@ Run `secagent` in a project folder. It:
 
 An AI assistant (Claude Code, Cursor, any MCP client) can drive the same scan through `secagent mcp`. It explains and prioritises; secagent still decides every status.
 
+What no scanner can decide (a route without an auth guard, a query without an ownership check, a public bucket) is covered by a **review checklist** (`secagent checklist`): sourced rules saying where to look in the code, how to decide and how to fix, for a person or an AI assistant that can read the code. Their answers are labelled as their assessment and never change the scan's findings.
+
 ## What makes it trustworthy
 
 - **Evidence or nothing.** Every finding cites a recorded observation. A check that could not run is `unverifiable` and listed apart from "passed"; it is never a pass.
@@ -36,7 +38,8 @@ TypeScript on Node 20+, three runtime dependencies besides the MCP SDK (`yaml`, 
 | Evidence and findings | `src/evidence/`, `src/findings/` | recorded observations, stable finding ids, diff between scans, accepted risks |
 | Report | `src/report/` | one block model, two renderers (Markdown, PDF) |
 | Knowledge base | `knowledge/`, `src/kb/` | seven sourced lessons from real remediations, per-project lessons and exceptions |
-| MCP server | `src/mcp/` | 15 tools and a `security_review` prompt over stdio; cannot change what is probed, accept a risk or add a server snapshot; scanned text is marked untrusted |
+| Review checklist | `knowledge/checklists/`, `src/kb/checklist.ts` | 49 sourced rules in five areas for what a scanner cannot decide (authorization, input handling, secrets in config, cloud, CI), for a person or an AI with the code; linked to the checks that cover them in part |
+| MCP server | `src/mcp/` | 16 tools and a `security_review` prompt over stdio; cannot change what is probed, accept a risk or add a server snapshot; scanned text is marked untrusted |
 | Agent layer | `agent/` | the playbook AI clients follow, and a Claude Code plugin with a `/security-review` command |
 | Host collector | `assets/collector.sh` | read-only script run on a server, output validated and stored |
 

@@ -9,10 +9,12 @@ secagent looks at your project the way an attacker's first pass would, then tell
 | Area | What you give it | What it looks at |
 |---|---|---|
 | **Code** | nothing (it reads the project folder) | secrets in source, `.env`/key files committed or one `git add .` away, secrets removed from the code but still in git history, npm packages with known vulnerabilities |
-| **Websites and APIs** | the deployed address (URL) | security headers, cookies, CORS, HTTP to HTTPS redirect, TLS versions and certificate, files that should never be served (`.env`, `.git`, source maps), DNS names pointing at services that no longer exist |
+| **Websites and APIs** | the deployed address (URL) | security headers, cookies, CORS, HTTP to HTTPS redirect, TLS versions and certificate, files and pages that should never be served (`.env`, `.git`, source maps, Spring Actuator, Apache server-status), DNS names pointing at services that no longer exist |
 | **Servers** | an address, plus the output of a read-only script you run on the server | SSH and nginx settings, databases listening on all interfaces, pending security updates, packages with distro advisories, reachable admin/database ports, a server answering directly behind a load balancer |
 
 It then writes one report (Markdown, PDF and HTML) with a verdict, the first things to fix, and for each finding what was found, why it matters, and how to fix it for your stack.
+
+For everything a scanner cannot decide (routes without an auth guard, lookups without an ownership check, SQL built from strings, public buckets, CI pipelines), `secagent checklist` gives a **review checklist**: 49 rules saying what to look for in the code and configuration, how to decide, and how to fix it, for you or your AI assistant to work through. See [The review checklist](#the-review-checklist-what-the-scan-cannot-check).
 
 What it will not do: log in anywhere, guess passwords, send anything but `GET`/`HEAD` requests and connection handshakes, follow redirects to other sites, or touch any address you did not list. Secret values are never printed, only file, line and a short fingerprint.
 
@@ -30,9 +32,10 @@ install  ->  secagent  ->  answer questions  ->  confirm permission  ->  scan  -
 2. **Run `secagent` in the project folder.** It looks at the folder (stack, git) and asks what it needs.
 3. **Confirm you may test the systems.** Nothing on the network is touched before this yes.
 4. **Read the verdict and the first fixes.** The full report is in `.secagent/reports/`.
-5. **Fix, then run `secagent` again** and choose *Scan again*. A finding is fixed only when a new scan says so.
-6. **Accept a risk** you cannot fix today, with an owner, a reason and an end date.
-7. **Put the code checks in CI** so a leaked secret or vulnerable dependency fails the pull request.
+5. **Work through the review checklist** (`secagent checklist`, or `/security-review` in Claude Code) for what the scan cannot see.
+6. **Fix, then run `secagent` again** and choose *Scan again*. A finding is fixed only when a new scan says so.
+7. **Accept a risk** you cannot fix today, with an owner, a reason and an end date.
+8. **Put the code checks in CI** so a leaked secret or vulnerable dependency fails the pull request.
 
 ## Install
 
@@ -156,6 +159,34 @@ secagent accept hdr-csp@app --owner "Priya" --reason "CSP rolls out with the new
 
 It is saved to `.secagent/knowledge/exceptions.yaml` (commit it). The next scan lists it under accepted risks, the verdict says so instead of "no issues", and it counts as open again the day after the date. Only open findings can be accepted, for at most a year ahead. An AI assistant cannot do this.
 
+## The review checklist: what the scan cannot check
+
+The scan decides what a tool can prove from outside or from files. Many ways in sit in the code and the cloud setup, and need someone to read them. `secagent checklist` gives the rules for that, in five areas:
+
+| Area | `--area` | Covers |
+|---|---|---|
+| Public surface and APIs | `surface` | login on every route, ownership checks on ids (IDOR), admin roles checked on the server, fields in responses, rate limits, API docs and debug endpoints, old versions and staging, CSRF, abuse of costly flows |
+| Authentication and sessions | `auth` | password hashing, login throttling, JWT, session lifetime, password reset, account enumeration, MFA for admins, default accounts, OAuth |
+| Input handling | `input` | SQL and NoSQL injection, command injection, XSS, validation, mass assignment, SSRF, path traversal, uploads, open redirects, unsafe deserialization, webhooks |
+| Secrets, configuration and logging | `secrets` | secrets in config files and Terraform state, secrets in frontend bundles, secret management, debug mode, error pages, logging, TLS verification, a security contact |
+| Cloud, containers and supply chain | `infra` | firewall and security-group exposure, public buckets, IAM, IMDSv2, account MFA and audit logs, containers, dependencies, CI/CD, branch protection, patching, backups |
+
+Every item says when it applies, why it matters, where to look (with names for common frameworks: Express, NestJS, Next.js, Django, FastAPI, Spring), when it fails or passes, what evidence to keep, how to fix it, and an OWASP or vendor source. Items the scan covers in part show its latest result, so nobody re-checks those by hand.
+
+```bash
+secagent checklist                         # all areas, printed
+secagent checklist --area auth,input       # some areas
+secagent checklist --out review.md         # to a file, to work through or hand to an AI
+```
+
+Ways to use it:
+
+- **Claude Code with the MCP server:** `/security-review` scans, then works through the checklist with the code (the `get_checklist` tool).
+- **Any other AI assistant:** run `secagent checklist --out review.md`, give it the file with access to the code, and ask it to answer every item that applies with pass, fail or unknown and file:line evidence.
+- **By hand:** go through `review.md`, for example as part of a release or a pull request review.
+
+The answers are an assessment by whoever worked through the list. secagent does not store them, and they never change scan findings or the verdict. Re-run the scan after fixing anything it checks.
+
 ## Safety: what it will and will not touch
 
 - **Scope.** Only the websites and servers in `.secagent/project.yaml` are probed. Any other address is refused, including one a page redirects to, because redirects are not followed.
@@ -229,6 +260,7 @@ hosts:
 | `secagent verify --host <name> --cve <id> [--package <name>] [--json] [--dir]` | Is a scanner's CVE claim true for this server? |
 | `secagent learn [--dir]` | Refresh CISA KEV and package advisories for stored snapshots |
 | `secagent accept <finding-id> --owner <n> --reason <t> --until <YYYY-MM-DD> [--dir]` | Accept an open finding's risk until a date |
+| `secagent checklist [--area <id>] [--out <file>] [--dir]` | The review checklist for what the scan cannot check, with the latest scan's results for items it covers in part |
 | `secagent eval <expected.yaml> [--dir]` | Compare the latest scan with expected statuses (`findings: { <id>: <status> }`); exit 1 on a difference |
 | `secagent mcp [--dir]` | Serve the project to an AI client over MCP |
 | `secagent mcp setup` | Print the command that connects Claude Code or another client |
@@ -273,6 +305,8 @@ jobs:
       - run: node "$RUNNER_TEMP/secagent/dist/cli.js" scan --only code --fail-on high
 ```
 
+**A full review with an AI assistant.** Run `secagent` (scan), then in Claude Code run `/security-review`, or with another assistant give it `secagent checklist --out review.md` and the code. Ask for the fails first, by severity, with file:line.
+
 **Prove a fix to a reviewer.** Run `secagent scan`, attach `.secagent/reports/latest.pdf`; the diff section lists what was fixed.
 
 **Let an AI assistant help.** `secagent mcp setup` prints the connection command; the assistant can scan, explain and re-check but cannot change what is probed or accept a risk. See [mcp.md](mcp.md).
@@ -295,5 +329,5 @@ jobs:
 - Dependency scanning covers npm (`package-lock.json`) only.
 - Package advisories cover Ubuntu and Debian only.
 - It checks the addresses you list; it does not discover other sites, subdomains or endpoints on its own.
-- It does not test logged-in behaviour: authorisation, business logic and injection flaws need a manual or authenticated test.
+- It does not test logged-in behaviour: authorisation, business logic and injection flaws are not probed. The review checklist covers them for a person or an AI assistant reading the code.
 - Server checks depend on a snapshot a person collects; secagent does not log in.

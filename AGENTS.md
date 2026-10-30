@@ -42,7 +42,8 @@ Node 20.19 or newer. After changing source, rebuild before trying the `secagent`
 | `src/findings/`, `src/evidence/` | Stable finding ids, diff between scans, recorded observations |
 | `src/report/` | One block model, renderers for Markdown, PDF and HTML |
 | `src/kb/`, `knowledge/` | Knowledge base: sourced lessons, checks, accepted-risk exceptions |
-| `src/mcp/` | MCP server (15 tools and a `security_review` prompt) |
+| `src/kb/checklist.ts`, `knowledge/checklists/` | Review checklist: rules a person or AI checks by reading code (`secagent checklist`, MCP `get_checklist`) |
+| `src/mcp/` | MCP server (16 tools and a `security_review` prompt) |
 | `lab/`, `scripts/` | Docker lab with a weak and a hardened site; demo project setup |
 | `test/` | Mirrors `src/`; includes real HTTPS/TLS servers, real git repos, a real MCP client |
 
@@ -61,6 +62,7 @@ Node 20.19 or newer. After changing source, rebuild before trying the `secagent`
 - A new instance of an existing check type is a YAML file in `knowledge/checks/` (`id`, `type`, `title`, `why`, `severity`, `applies_to`, `params`, `fix_hints`, `source_url`, `review`). See `knowledge/checks/exposed-paths.yaml`. Then run `npm run dev -- kb index` to refresh `knowledge/INDEX.md`; a test checks the catalogue loads.
 - A new check type is a file in `src/checks/types/` registered in `src/checks/registry.ts`, with a `params` zod schema, tests in `test/checks/types/`, and a seed YAML instance.
 - Write the plain-language `why` and a `fix_hints` entry per stack; the report is read by non-experts.
+- Something a tool cannot decide reliably belongs in the review checklist instead: an item in `knowledge/checklists/<area>.yaml` (`id`, `title`, `severity`, `applies_if`, `why`, `look_for`, `fail_if`, `pass_if`, `evidence`, `fix`, `source_url` on the allowlist, `automated_by` naming checks that cover it in part). Regenerate `knowledge/INDEX.md` afterwards.
 
 ## Conventions
 

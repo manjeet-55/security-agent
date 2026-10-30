@@ -55,6 +55,7 @@ Then ask, for example: "Run a security scan of this project and tell me what to 
 | `probe_http` | One GET or HEAD to a URL on a listed website (to check a fix quickly); status and headers, never the body |
 | `make_collector` | Writes the read-only collector for a listed server and says how to run it; adding its output stays a person's step |
 | `kb_read` | One lesson or check by id; `INDEX` is the one-line-per-entry overview, `notes` the project's notes, `exceptions` its accepted risks |
+| `get_checklist` | The review checklist for what the scan cannot decide (route authorization, input handling, secrets in config, cloud and CI), optionally for some `areas`, with the latest scan's outcome for items it covers in part. The assistant works through it with its own code access; its answers are its assessment, not scan results |
 
 ## What the assistant can and cannot do
 

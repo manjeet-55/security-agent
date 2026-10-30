@@ -43,8 +43,14 @@ Run `secagent` again in the same folder to scan again, change the answers, or st
 | Area | Checks |
 |---|---|
 | Code | secrets in source files (keys, tokens, private keys, passwords in URLs), `.env`/key/credential files committed or one `git add .` away from it, secrets that were committed once and removed since (git history), npm dependencies with known vulnerabilities (`package-lock.json` against OSV) |
-| Websites and APIs | security headers, cookies, CORS, HTTP to HTTPS redirect, TLS versions and certificate, files that should not be served (`.env`, `.git`, source maps), DNS aliases pointing at names that no longer exist |
+| Websites and APIs | security headers, cookies, CORS, HTTP to HTTPS redirect, TLS versions and certificate, files and pages that should not be served (`.env`, `.git`, source maps, Spring Actuator, Apache server-status), DNS aliases pointing at names that no longer exist |
 | Servers | SSH and nginx settings, listening database ports, pending security updates, packages with distro advisories (from the read-only collector's output; `distro_mirrors` vouches for a private apt mirror), answering directly behind a load balancer |
+
+## What the scan cannot check: the review checklist
+
+Most ways attackers get in are in the code and the cloud setup, where no scanner can decide them: a route without an auth guard, a lookup by id without an ownership check, SQL built from strings, a public bucket, a CI workflow that runs pull-request code with secrets. `secagent checklist` prints 49 rules in five areas (public surface and APIs, authentication, input handling, secrets and configuration, cloud and supply chain). Each says what to look for, with names for common frameworks, when it fails, what evidence to keep and how to fix it, with an OWASP or vendor source. Items the scan covers in part show its latest result.
+
+You, or an AI assistant with access to the code, work through it: `/security-review` in Claude Code does it after the scan (MCP tool `get_checklist`), or give `secagent checklist --out review.md` to any assistant. The answers are that reviewer's assessment; secagent does not store them and they never change scan findings.
 
 ## What the report says
 
@@ -98,6 +104,7 @@ prints the findings, writes the reports, and exits 1 when an open finding is hig
 | `secagent doctor` | Check the machine and project, with a fix for each problem |
 | `secagent mcp setup` | Print the command that connects an AI client to this folder |
 | `secagent report` | Re-render the report of the latest scan |
+| `secagent checklist [--area <id>] [--out <file>]` | The review checklist for what the scan cannot check |
 | `secagent collector --host <name>` | Print the read-only collector script for a server |
 | `secagent snapshot add --host <name> <file>` | Store the collector's output |
 | `secagent verify --host <name> --cve <id>` | Is a scanner's CVE claim true for this host? |
@@ -114,7 +121,7 @@ prints the findings, writes the reports, and exits 1 when an open finding is hig
 What it does and does not do, so a clean report is read correctly:
 
 - **It checks what you list.** Websites, APIs and servers go in `.secagent/project.yaml` (the guided scan writes it). Anything else is refused, redirects are not followed, and cloud-metadata addresses are never probed. It does not discover other sites, subdomains or endpoints by itself.
-- **It is read-only.** `GET`/`HEAD` requests, TLS handshakes and TCP connection tests. No logins, no guessing, no injection or fuzzing tests, so it does not test authorisation or business logic.
+- **It is read-only.** `GET`/`HEAD` requests, TLS handshakes and TCP connection tests. No logins, no guessing, no injection or fuzzing tests, so it does not test authorisation or business logic; the review checklist covers those for a person or an AI reading the code.
 - **Hosting is irrelevant for websites and APIs.** EC2, Vercel, Netlify or on-premises: list the public URL.
 - **Dependency scanning is npm only** (`package-lock.json`). Other ecosystems are not checked yet.
 - **Server package advisories cover Ubuntu and Debian only.** Amazon Linux and other systems report those checks as "could not verify" (see [docs/usage.md](docs/usage.md#scanning-a-server)).
