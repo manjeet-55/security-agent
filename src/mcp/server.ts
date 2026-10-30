@@ -22,6 +22,7 @@ export const SERVER_INSTRUCTIONS = [
   '- If you learn something worth keeping, fetch an allowlisted source with fetch_source and propose a lesson with kb_write, quoting the page exactly; it stays pending until a person approves it.',
   '- To call an open finding a false positive or not applicable, use triage_finding and cite an approved lesson or verify_claim evidence; without one it stays open.',
   '- kb_search and kb_read give you lessons from past remediations (start with kb_read INDEX). Knowledge marked pending may add a finding or raise a severity; only approved knowledge can back calling a finding a false positive or lowering its severity.',
+  '- get_checklist lists what the scan cannot decide (authorization, input handling, secrets in config, cloud and CI). Answers you give from working through it with the code are your assessment: say so, cite file:line, and never present them as scan results or change a finding because of them.',
   '- Secret values are never available to you and you must not ask for them: findings give file, line, pattern and a fingerprint only. Tell the person to rotate any credential reported.',
   '- You cannot change which websites or servers are probed; only a person editing .secagent/project.yaml can.',
 ].join('\n');

@@ -83,7 +83,7 @@ describe('the demo, end to end', () => {
       out.on('data', (c: Buffer) => {
         printed += c.toString();
       });
-      const prompter = new ScriptedPrompter([undefined, ['code', 'web'], server.url, true, 'web', 'dev', false, 'office', true, 'exit']);
+      const prompter = new ScriptedPrompter([undefined, undefined, ['code', 'web'], server.url, true, 'web', 'dev', false, 'office', true, 'exit']);
       expect(await runWizard(dir, { prompter, out, style: createStyle({ isTTY: false }), now: NOW, openFile: async () => true, advisories: OSV_FAKE })).toBe(0);
       prompter.done();
       expect(printed).toContain('Needs attention');

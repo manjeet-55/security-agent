@@ -1,0 +1,178 @@
+area: input
+title: Input handling
+order: 3
+items:
+  - id: input-sql-injection
+    title: SQL is built only with parameters, never by joining strings with input
+    severity: critical
+    applies_if: The project uses a SQL database
+    why: SQL injection lets an attacker read the whole database, log in as anyone, or change and delete data, from a single text field.
+    look_for:
+      - 'Queries built with template strings or +: query(`SELECT ... ${...}`), "SELECT ... " + id, f-strings or % in cursor.execute.'
+      - 'Raw-query escape hatches: sequelize.query without replacements, TypeORM .query(, Knex .raw(, Prisma $queryRawUnsafe / $executeRawUnsafe, Django .raw( / .extra(, JPA createNativeQuery with concatenation.'
+      - 'ORDER BY and column names taken from input (they cannot be parameters, so they need an allowlist).'
+    fail_if: Any query includes request data that is not passed as a bound parameter or checked against an allowlist.
+    pass_if: All queries use the ORM or bound parameters, and dynamic identifiers come from an allowlist.
+    evidence: file:line of every raw query and how its inputs are bound.
+    fix: Use parameterised queries or the ORM's query builder; map sort and column inputs through an allowlist.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+
+  - id: input-nosql-injection
+    title: Database queries never take objects straight from the request
+    severity: high
+    applies_if: The project uses MongoDB or another document database
+    why: 'If the body field email can be the object {"$ne": null}, find({ email, password }) matches the first user and logs the attacker in. $where and $function run code.'
+    look_for:
+      - 'Request values passed into filters without a type check: find(req.body), findOne({ email: req.body.email }), update with req.body.'
+      - 'Use of $where, $function, mapReduce or $accumulator with any input.'
+      - 'Sanitising or schema validation: express-mongo-sanitize, mongoose sanitizeFilter, zod/joi/class-validator ensuring strings are strings.'
+    fail_if: A request value that could be an object reaches a query filter, or input reaches $where-like operators.
+    pass_if: Inputs are validated to primitive types before querying, or operator keys are stripped, and no input reaches code-executing operators.
+    evidence: file:line of query construction for login and search, and of the validation in front of it.
+    fix: Validate types with a schema, enable sanitizeFilter or strip keys starting with $, and remove $where.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Injection_Prevention_Cheat_Sheet.html
+
+  - id: input-command-injection
+    title: No shell command or code is built from input
+    severity: critical
+    why: Passing input to a shell or to eval runs the attacker's commands on your server with the app's permissions, which usually means full compromise.
+    look_for:
+      - 'Node: child_process.exec / execSync with template strings, spawn with shell: true, eval(, new Function(, vm.runIn*Context with input.'
+      - 'Python: os.system, subprocess with shell=True, eval, exec. PHP: exec, system, shell_exec, backticks. Java: Runtime.exec with a single concatenated string.'
+      - Image, PDF and video processing wrappers (ImageMagick, ffmpeg, wkhtmltopdf) that build command lines from file names or options.
+    fail_if: Any request data reaches a shell command string, eval or an equivalent.
+    pass_if: Commands use an argument array without a shell (execFile, spawn without shell, subprocess with a list), inputs are allowlisted, and eval is not used on input.
+    evidence: file:line of every process execution and eval-like call.
+    fix: Use execFile or spawn with an argument array, validate against an allowlist, and prefer a library over a shell command.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
+
+  - id: input-xss
+    title: User content is never inserted into pages as raw HTML
+    severity: high
+    applies_if: The project renders user-supplied content in a browser
+    why: Cross-site scripting runs the attacker's script in your users' browsers, which can steal sessions and tokens and act as the user.
+    look_for:
+      - 'Raw HTML sinks: dangerouslySetInnerHTML, innerHTML =, outerHTML, document.write, v-html, [innerHTML] with bypassSecurityTrust*, jQuery .html(.'
+      - 'Template escapes switched off: | safe and Markup in Jinja, {!! !!} in Blade, <%- %> in EJS, th:utext in Thymeleaf, triple braces in Handlebars.'
+      - 'Markdown or rich text rendered to HTML without a sanitiser (marked or markdown-it without DOMPurify / sanitize-html).'
+      - 'URLs from users placed in href or src without blocking javascript: links.'
+    fail_if: User-controlled data reaches a raw HTML sink without sanitising.
+    pass_if: The framework's escaping is used everywhere, every raw HTML sink gets sanitised input, and a Content-Security-Policy limits scripts as a second layer.
+    evidence: file:line of each raw HTML sink and the sanitiser applied.
+    fix: Remove raw HTML sinks or sanitise with DOMPurify; validate URL schemes; keep a restrictive CSP.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html
+    automated_by: [hdr-csp]
+
+  - id: input-validation
+    title: Every endpoint validates its input against a schema
+    severity: medium
+    why: Validated input (types, lengths, formats, allowed values) shuts off whole classes of attacks and crashes before the data reaches queries, files or other services.
+    look_for:
+      - 'A validation layer on body, query and path parameters: zod, joi, yup, class-validator with ValidationPipe, express-validator, pydantic, Django forms or serializers, Bean Validation.'
+      - Routes that read req.body or req.query fields directly without validation.
+      - String length and array size limits, number ranges, and enums for fixed choices.
+    fail_if: Endpoints accept unvalidated input, or validation only happens in the frontend.
+    pass_if: Every endpoint validates on the server with a schema that sets types, lengths and allowed values.
+    evidence: The validation setup (global pipe or middleware) and examples for the main endpoints (file:line).
+    fix: Add schema validation at the edge of every handler, with a global setting that rejects unknown fields.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html
+
+  - id: input-mass-assignment
+    title: Request bodies cannot set fields the user should not control
+    severity: high
+    applies_if: Records are created or updated from request bodies
+    why: If the update handler copies the whole body into the record, an attacker adds "role":"admin", "isVerified":true or "price":0 to the request.
+    look_for:
+      - 'Whole-body writes: Model.create(req.body), Object.assign(entity, req.body), { ...req.body } into an update, repo.save(body), Django ModelSerializer with fields = "__all__", Rails params.permit!.'
+      - 'ValidationPipe without whitelist: true / forbidNonWhitelisted: true in NestJS; DTOs that include role, owner or price fields.'
+    fail_if: A sensitive field (role, permissions, owner, verified, balance, price) can be set through a request body by a user who should not set it.
+    pass_if: Writes use an explicit list of allowed fields per action, and unknown fields are rejected.
+    evidence: file:line of create and update handlers for users and other sensitive entities.
+    fix: Copy only allowed fields (DTOs with whitelist, pick, serializers with explicit fields), and reject unknown fields.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html
+
+  - id: input-ssrf
+    title: The server does not fetch arbitrary URLs supplied by users
+    severity: high
+    applies_if: The server fetches URLs it receives (webhooks, imports, link previews, image or PDF rendering)
+    why: Server-side request forgery makes your server call internal addresses, such as the cloud metadata service at 169.254.169.254 that hands out credentials, or admin services that trust the internal network.
+    look_for:
+      - 'fetch, axios, got, requests or HttpClient called with a URL from the request, a stored profile field or a webhook setting.'
+      - 'Features: "import from URL", avatar by URL, link previews, webhook URLs, headless browsers (Puppeteer, Playwright, wkhtmltopdf) rendering user HTML.'
+      - 'Protection: an allowlist of hosts, resolving DNS and blocking private, loopback and link-local addresses, redirects disabled or re-checked.'
+    fail_if: A user-controlled URL is fetched without host allowlisting or private-address blocking.
+    pass_if: Fetches go only to allowlisted hosts, or through a guard that blocks private and link-local addresses after DNS resolution and on every redirect.
+    evidence: file:line of each outbound fetch with a user-influenced URL and of its guard.
+    fix: Allowlist hosts, block private ranges after resolution, disable redirects, and on AWS require IMDSv2.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
+
+  - id: input-path-traversal
+    title: File paths built from input stay inside their folder
+    severity: high
+    applies_if: The project reads, writes or serves files by a name or path that comes from a request, or extracts archives
+    why: A name like ../../.env or ../../../etc/passwd reads files outside the intended folder; writing that way can overwrite code. Archive extraction has the same hole (zip slip).
+    look_for:
+      - 'path.join / os.path.join with request values, res.sendFile / res.download with input, open(base + name), send_file.'
+      - Whether the resolved path is checked to start with the base folder after normalising.
+      - Archive extraction (adm-zip, unzipper, tar, zipfile) without checking entry names.
+    fail_if: Input reaches a file path without normalising and checking that it stays inside the base folder.
+    pass_if: Files are addressed by ids mapped to paths on the server, or the resolved path is checked against the base folder, and archive entries are checked.
+    evidence: file:line of each file access built from input, and its check.
+    fix: Map ids to stored paths, or resolve and verify the prefix; reject entry names with .. or absolute paths.
+    source_url: https://owasp.org/www-community/attacks/Path_Traversal
+
+  - id: input-file-upload
+    title: Uploads are limited, checked, renamed and never executed
+    severity: high
+    applies_if: Users can upload files
+    why: Uploads are a path to running code on the server (a script in the web root), to stored XSS (an HTML or SVG file served from your domain), and to filling the disk.
+    look_for:
+      - 'Upload handlers (multer, busboy, formidable, Django FileField, Spring MultipartFile) and their size and count limits.'
+      - Type checks by content (magic bytes) against an allowlist, not by the client's Content-Type or extension alone.
+      - 'Storage: renamed to a generated name, outside the web root or in object storage; served with Content-Disposition: attachment or from a separate domain; SVG and HTML treated as dangerous.'
+    fail_if: Uploads have no size limit, keep the user's file name, land in a folder the web server executes or serves as HTML, or are type-checked only by extension.
+    pass_if: Size and type are limited by allowlist, files are renamed and stored outside the web root (or in a bucket), and are served as downloads or from another domain.
+    evidence: The upload handler configuration and the storage location (file:line).
+    fix: Set limits, allowlist types by content, rename, store in object storage, and serve from a separate domain with attachment disposition.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
+
+  - id: input-open-redirect
+    title: Redirect targets from input are restricted
+    severity: medium
+    applies_if: The app redirects to a URL from a query parameter (next, returnUrl, redirect, callbackUrl)
+    why: An open redirect on your domain makes phishing links look trustworthy, and in OAuth flows it can leak tokens to the attacker.
+    look_for:
+      - 'res.redirect(req.query.next), redirect(request.GET[''next'']), return Redirect(url), router.push(searchParams.get(''returnUrl'')).'
+      - 'The check in front: relative paths only (starting with a single /), or an allowlist of hosts.'
+    fail_if: A redirect target taken from input can point to another domain.
+    pass_if: Only relative paths or allowlisted hosts are accepted, and // or backslash tricks are rejected.
+    evidence: file:line of each redirect from input and its check.
+    fix: Accept only same-site relative paths or map short names to fixed URLs.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
+
+  - id: input-deserialization
+    title: Untrusted data never creates live objects or changes prototypes
+    severity: high
+    why: Unsafe deserialisers (pickle, yaml.load, Java ObjectInputStream, PHP unserialize, node-serialize) run attacker code. In JavaScript, deep-merging request JSON can set __proto__ and change how the whole app behaves (prototype pollution).
+    look_for:
+      - 'pickle.loads, yaml.load without SafeLoader, marshal, Java ObjectInputStream / XMLDecoder, PHP unserialize, node-serialize, BinaryFormatter on data from requests, cookies, queues or files users can upload.'
+      - 'Deep merges of request data: lodash merge / defaultsDeep / set with user paths, custom recursive merge, Object.assign into shared objects.'
+    fail_if: Untrusted data reaches an unsafe deserialiser, or request JSON is deep-merged without blocking __proto__, constructor and prototype keys.
+    pass_if: Only safe formats and loaders are used (JSON.parse, yaml.safe_load), and merges of input either do not exist or block prototype keys.
+    evidence: file:line of each deserialisation and deep merge of external data.
+    fix: Switch to safe loaders and plain JSON, validate with a schema, use Object.create(null) or Map for user-keyed data, and keep libraries patched.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html
+
+  - id: input-webhooks
+    title: Incoming webhooks verify their signature, and data from other APIs is validated
+    severity: medium
+    applies_if: The project receives webhooks (payments, GitHub, Slack) or consumes third-party APIs
+    why: An unverified webhook endpoint lets anyone send a fake "payment succeeded". Data from a partner API is input too, and a compromised partner is a way in.
+    look_for:
+      - 'Webhook handlers (/webhook, /hooks, /stripe, /callback) and their signature check: stripe.webhooks.constructEvent, GitHub X-Hub-Signature-256, Slack signing secret, a timestamp to stop replays.'
+      - Third-party responses used without validation, or calls over plain HTTP, or following redirects to anywhere.
+    fail_if: A webhook is processed without verifying its signature, or third-party data reaches queries, HTML or files unvalidated.
+    pass_if: Every webhook verifies a signature (and timestamp) before acting, and third-party data goes through the same validation as user input.
+    evidence: file:line of each webhook's signature check.
+    fix: Verify signatures with the provider's library, reject old timestamps, and validate third-party data with a schema.
+    source_url: https://owasp.org/API-Security/editions/2023/en/0xaa-unsafe-consumption-of-apis/

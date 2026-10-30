@@ -2,6 +2,15 @@
   "name": "secagent",
   "version": "0.1.0",
   "description": "A security check you run in your project folder: it asks what to check, asks for permission, scans code, websites and servers, and writes a plain-language Markdown and PDF report. Deterministic, with an MCP server for AI assistants.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manjeet-55/security-agent.git"
+  },
+  "homepage": "https://github.com/manjeet-55/security-agent#readme",
+  "bugs": {
+    "url": "https://github.com/manjeet-55/security-agent/issues"
+  },
   "type": "module",
   "bin": {
     "secagent": "dist/cli.js"
@@ -10,7 +19,9 @@
     "dist",
     "knowledge",
     "agent",
-    "assets"
+    "assets",
+    "docs/usage.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20.19"

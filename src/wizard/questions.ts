@@ -22,6 +22,8 @@ export interface WizardPlan {
 export interface AskDeps {
   dir: string;
   existing?: ProjectConfig;
+  /** For a project that is already set up: scan again with its settings (default), change them, or start over. */
+  start?: 'again' | 'change' | 'fresh';
   detection: StackDetection;
   now: () => Date;
   /** DNS lookup for the internal-address question; injectable for tests. */
@@ -137,8 +139,13 @@ async function askWebsites(p: Prompter, deps: AskDeps, seed: readonly Target[]):
   }
 }
 
-/** Reads and validates collector output; false means the person skipped it. */
-async function askSnapshot(p: Prompter, deps: AskDeps, host: string): Promise<string | undefined> {
+/** How to run the collector on a server and what to bring back. */
+export function collectorSteps(file: string, host: string): string {
+  return `Copy ${file} to ${host}, read it, then run it there:\n  sudo sh ${path.basename(file)} > ${host}.json\nand bring ${host}.json back.`;
+}
+
+/** Reads and validates collector output; undefined means the person skipped it. */
+export async function askSnapshot(p: Prompter, deps: Pick<AskDeps, 'dir' | 'now' | 'readFile'>, host: string): Promise<string | undefined> {
   const read = deps.readFile;
   if (!read) return undefined;
   for (;;) {
@@ -175,7 +182,7 @@ async function askServers(p: Prompter, deps: AskDeps, seed: readonly Host[], pen
     hosts.push({ name, address, env, reachable_from: [], serves: [], allow_private: false, distro_mirrors: [] });
     if (deps.writeCollector && (await p.confirm({ message: `Write the read-only collector for ${name} so you can run it on the server?`, default: true }))) {
       const file = await deps.writeCollector(name);
-      p.note(`Copy ${file} to ${name}, read it, then run it there:\n  sudo sh ${path.basename(file)} > ${name}.json\nand bring ${name}.json back.`);
+      p.note(collectorSteps(file, name));
     }
     const text = await askSnapshot(p, deps, name);
     if (text) snapshots.push({ host: name, text });
@@ -213,15 +220,7 @@ export async function askPlan(p: Prompter, deps: AskDeps): Promise<WizardPlan | 
   let snapshots: Draft['snapshots'] = [];
 
   if (existing) {
-    const action = await p.select({
-      message: 'This project is already set up. What now?',
-      choices: [
-        { value: 'again' as const, label: 'Scan again with these settings' },
-        { value: 'change' as const, label: 'Change the settings' },
-        { value: 'fresh' as const, label: 'Start over' },
-      ],
-      default: 'again' as const,
-    });
+    const action = deps.start ?? 'again';
     if (action === 'again') {
       const groups = initialGroups(existing);
       const consentAt = await askConsent(p, deps, groups, existing.targets, existing.hosts);

@@ -84,3 +84,13 @@ export async function doctor(dir: string, deps: DoctorDeps): Promise<DoctorLine[
   }
   return lines;
 }
+
+/** What `secagent doctor` prints, and its exit code: 1 when anything failed. */
+export function formatDoctor(lines: readonly DoctorLine[]): { lines: string[]; code: number } {
+  const mark = { ok: '✓', warn: '!', fail: '✗' } as const;
+  const text = lines.flatMap((l) => [`${mark[l.level]} ${l.text}`, ...(l.fix ? [`    ${l.fix}`] : [])]);
+  const fails = lines.filter((l) => l.level === 'fail').length;
+  const warns = lines.filter((l) => l.level === 'warn').length;
+  text.push(fails > 0 ? `\n${fails} problem(s) to fix.` : warns > 0 ? `\nWorks, with ${warns} thing(s) worth a look.` : '\nAll good.');
+  return { lines: text, code: fails > 0 ? 1 : 0 };
+}

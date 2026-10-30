@@ -1,0 +1,165 @@
+area: infra
+title: Cloud, containers and supply chain
+order: 5
+items:
+  - id: infra-network-exposure
+    title: Firewalls and security groups open only what must be public
+    severity: high
+    why: Databases, SSH and admin ports open to the internet are scanned and attacked within minutes of going live.
+    look_for:
+      - 'Security groups, firewall rules and network policies in Terraform, CloudFormation, CDK or the console: 0.0.0.0/0 or ::/0 on 22, 3389, 3306, 5432, 6379, 9200, 27017 or any admin port.'
+      - 'Managed databases with public access on (RDS publicly_accessible = true, Cloud SQL public IP), and Kubernetes Services of type LoadBalancer or NodePort for internal services.'
+      - 'docker-compose ports such as "5432:5432", which publish on all interfaces.'
+    fail_if: Anything other than the public web ports is reachable from the internet, or a database has a public endpoint.
+    pass_if: Only 80/443 (or the load balancer) are public; SSH is limited to a VPN or office range or replaced by a session manager; databases accept only the app's security group.
+    evidence: The rules for each public resource (file:line or console export).
+    fix: Narrow rules to security group references or known ranges, turn off public database endpoints, and use SSM Session Manager or a VPN for admin access.
+    source_url: https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html
+    automated_by: [ports-exposed, host-listening-databases, host-lb-bypass]
+
+  - id: infra-storage-public
+    title: Storage buckets are private, and public files are shared on purpose
+    severity: high
+    applies_if: The project uses object storage (S3, GCS, Azure Blob, R2)
+    why: Public buckets are one of the most common sources of large data leaks; tools list them automatically.
+    look_for:
+      - 'S3: acl public-read, bucket policies with "Principal": "*", Block Public Access turned off at bucket or account level; GCS: allUsers or allAuthenticatedUsers; Azure: container public access.'
+      - Uploads and backups stored in the same bucket as public assets.
+      - How private files are shared (pre-signed URLs with a short expiry, or a CDN with signed URLs).
+    fail_if: A bucket holding user files, backups or logs allows public listing or reading.
+    pass_if: Block Public Access is on (account-wide where possible), public assets live in a separate bucket behind a CDN, and private files use short-lived signed URLs.
+    evidence: The bucket policies and Block Public Access settings.
+    fix: Turn on Block Public Access account-wide, split public assets into their own bucket, and use pre-signed URLs.
+    source_url: https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html
+
+  - id: infra-iam-least-privilege
+    title: Cloud credentials used by the app and CI have only the permissions they need
+    severity: high
+    applies_if: The project runs on a cloud provider
+    why: When the app or CI is compromised, the attacker gets exactly the permissions it has. "Action *" on "Resource *" turns a bug into control of the whole account.
+    look_for:
+      - 'IAM policies with "Action": "*", "Resource": "*", AdministratorAccess or PowerUserAccess attached to app roles, Lambda roles or CI users.'
+      - Long-lived access keys in environment variables or CI secrets where an instance role, task role or OIDC federation would do (GitHub Actions configure-aws-credentials with role-to-assume).
+      - Keys that are old or unused.
+    fail_if: An app or CI identity has wildcard or administrator permissions, or uses long-lived keys that could be roles.
+    pass_if: Each workload has its own role scoped to the actions and resources it uses, and CI uses OIDC instead of stored keys.
+    evidence: The policies attached to each workload and CI identity.
+    fix: Scope policies to used actions and resources (IAM Access Analyzer can generate them), switch to roles and OIDC, and delete old keys.
+    source_url: https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
+
+  - id: infra-imdsv2
+    title: EC2 instances require IMDSv2
+    severity: medium
+    applies_if: The project runs on EC2 (or EKS nodes, Elastic Beanstalk, ECS on EC2)
+    why: With IMDSv1, a single SSRF bug lets an attacker read the instance role's credentials from the metadata service. IMDSv2 needs a token that SSRF usually cannot get.
+    look_for:
+      - 'Terraform or launch templates: metadata_options { http_tokens = "required" }.'
+      - The console or aws ec2 describe-instances output for HttpTokens on each instance.
+    fail_if: Any instance allows IMDSv1 (http_tokens optional).
+    pass_if: All instances and launch templates require IMDSv2, ideally enforced as the account default.
+    evidence: The metadata options of each instance or launch template.
+    fix: Set http_tokens to required in launch templates, apply it to running instances, and set the account-level default.
+    source_url: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html
+
+  - id: infra-account-security
+    title: Cloud and code-hosting accounts use MFA, no root keys, and keep audit logs
+    severity: high
+    why: Taking over the cloud or GitHub account bypasses every control in the app. Without audit logs you cannot tell what happened afterwards.
+    look_for:
+      - 'Cloud: MFA on the root user and all humans, no root access keys, SSO for people, CloudTrail (or the provider''s audit log) on in all regions with logs kept outside the account.'
+      - 'GitHub or GitLab: organisation-wide 2FA required, owners and admins reviewed, personal access tokens limited and expiring.'
+    fail_if: Any human account lacks MFA, root keys exist, or audit logging is off.
+    pass_if: MFA is enforced, root is locked away, people use SSO, and audit logs are on and protected.
+    evidence: The account settings pages or a security report (IAM credential report, GitHub org security settings).
+    fix: Enforce MFA, delete root keys, enable organisation trails, and require 2FA in the code host.
+    source_url: https://docs.aws.amazon.com/IAM/latest/UserGuide/root-user-best-practices.html
+
+  - id: infra-containers
+    title: Containers run as non-root, unprivileged, from pinned maintained images
+    severity: high
+    applies_if: The project builds or runs containers
+    why: A container running as root with extra privileges, or with the Docker socket mounted, turns an app bug into control of the host.
+    look_for:
+      - 'Dockerfile: no USER line (runs as root), FROM ...:latest or unmaintained images, ADD from URLs, secrets in ARG or ENV, curl | sh.'
+      - 'Compose or Kubernetes: privileged: true, /var/run/docker.sock mounted, network_mode: host, cap_add, hostPath volumes, missing securityContext (runAsNonRoot, allowPrivilegeEscalation: false, readOnlyRootFilesystem).'
+      - How often images are rebuilt to pick up base-image security fixes.
+    fail_if: A production container runs as root with added privileges, mounts the Docker socket, or uses an unpinned or unmaintained base image.
+    pass_if: Containers run as a non-root user, without extra capabilities or the socket, from pinned maintained images that are rebuilt regularly.
+    evidence: The Dockerfiles and deployment manifests (file:line).
+    fix: Add a USER, drop capabilities, remove socket mounts, pin base images by digest or version, and rebuild on a schedule.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html
+
+  - id: infra-dependencies
+    title: Dependencies are locked, scanned and kept up to date in every ecosystem
+    severity: high
+    why: Most applications are mostly third-party code. Known-vulnerable versions are found and exploited automatically, and unlocked versions can change under you.
+    look_for:
+      - Lockfiles committed for every package manager (package-lock.json, pnpm-lock.yaml, yarn.lock, poetry.lock, requirements with pins, go.sum, Cargo.lock, composer.lock, Gemfile.lock).
+      - 'CI installs from the lockfile (npm ci, pnpm install --frozen-lockfile, pip install --require-hashes).'
+      - 'Automated updates (.github/dependabot.yml or Renovate) and a vulnerability scan for each ecosystem (secagent covers npm; pip-audit, govulncheck, cargo audit, bundler-audit for the others).'
+    fail_if: An ecosystem has no lockfile, CI ignores it, or nothing scans or updates dependencies.
+    pass_if: Every ecosystem is locked, installed from the lockfile in CI, scanned, and updated automatically.
+    evidence: The lockfiles, the CI install commands, and the update configuration.
+    fix: Commit lockfiles, use frozen installs, enable Dependabot or Renovate, and add the scanner for each ecosystem.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Vulnerable_Dependency_Management_Cheat_Sheet.html
+    automated_by: [code-dependencies-npm]
+
+  - id: infra-ci-cd
+    title: CI/CD pipelines cannot be turned against you
+    severity: high
+    applies_if: The project uses GitHub Actions, GitLab CI or another pipeline
+    why: The pipeline holds deploy keys and cloud credentials. A malicious pull request, a hijacked third-party action, or text from an issue title run as a shell command can steal them.
+    look_for:
+      - 'Third-party actions pinned to a full commit SHA, not @main or @v1.'
+      - 'permissions: set to the minimum (contents: read by default), not write-all.'
+      - 'pull_request_target or workflow_run workflows that check out and run code from the pull request.'
+      - 'Untrusted input in run: steps, such as ${{ github.event.pull_request.title }} or issue bodies (script injection).'
+      - Secrets available to forks, secrets printed in logs, and deploys with long-lived keys instead of OIDC.
+    fail_if: Any of the patterns above is present in a workflow that has secrets or write access.
+    pass_if: Actions are pinned, permissions are minimal, untrusted code never runs with secrets, untrusted input is passed through environment variables, and deploys use OIDC.
+    evidence: The workflow files reviewed, with file:line of any finding.
+    fix: Pin actions by SHA, set top-level permissions to read, avoid pull_request_target with checkout, pass untrusted values through env, and use OIDC for deploys.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/CI_CD_Security_Cheat_Sheet.html
+
+  - id: infra-repo-protection
+    title: The main branch is protected and secret scanning blocks pushes
+    severity: medium
+    applies_if: The code is hosted on GitHub, GitLab or similar
+    why: Without branch protection one stolen token can push straight to production. Push protection stops most secrets before they reach the history.
+    look_for:
+      - 'Branch protection or rulesets on the default branch: required reviews, required status checks (tests, and secagent scan --fail-on high), no force pushes or deletion.'
+      - Secret scanning with push protection, and CODEOWNERS for sensitive paths (auth, infrastructure, workflows).
+    fail_if: The default branch accepts direct or force pushes, or merges without review and checks.
+    pass_if: Reviews and checks are required, force pushes are blocked, push protection is on, and sensitive paths have owners.
+    evidence: The branch protection or ruleset settings.
+    fix: Add a ruleset for the default branch with reviews and required checks, and enable secret scanning push protection.
+    source_url: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
+
+  - id: infra-patching
+    title: Servers, managed runtimes and images get security updates on a schedule
+    severity: medium
+    why: Most server compromises use known, already-patched vulnerabilities on machines nobody updated.
+    look_for:
+      - Automatic security updates on servers (unattended-upgrades, dnf-automatic) and reboots when the kernel or libraries need them.
+      - Runtimes and platforms at supported versions (Node, Python, Java, the database engine, Kubernetes).
+      - Container images rebuilt regularly so they include base-image fixes.
+    fail_if: Servers or images are not updated on a schedule, or a runtime is past its end of life.
+    pass_if: Updates are automatic or scheduled with an owner, reboots happen, and runtimes are on supported versions.
+    evidence: The update configuration, the runtime versions, and the date of the last image rebuild.
+    fix: Turn on automatic security updates, schedule reboots and image rebuilds, and plan upgrades before end of life.
+    source_url: https://wiki.debian.org/UnattendedUpgrades
+    automated_by: [host-auto-upgrades, host-package-advisories, host-reboot-pending]
+
+  - id: infra-backups
+    title: Backups are automatic, encrypted, kept apart, and a restore has been tested
+    severity: medium
+    why: Ransomware and destructive attacks delete or encrypt backups that sit next to the data. An untested backup often fails when it is needed.
+    look_for:
+      - Automated backups of databases and file storage, how long they are kept, and whether they are encrypted.
+      - Whether backups are in another account, region or immutable store (object lock, vault lock), out of reach of the app's credentials.
+      - The date of the last restore test.
+    fail_if: There are no automated backups, backups can be deleted with the app's credentials, or no restore has been tested.
+    pass_if: Backups are automatic, encrypted, stored apart and immutable, and a restore is tested on a schedule.
+    evidence: The backup configuration and the record of the last restore test.
+    fix: Enable automated backups to a separate account or immutable store, and schedule restore tests.
+    source_url: https://docs.aws.amazon.com/aws-backup/latest/devguide/whatisbackup.html

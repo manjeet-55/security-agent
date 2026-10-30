@@ -100,7 +100,7 @@ function bySeverity(a: Finding, b: Finding): number {
 }
 
 /** One line per fix hint: "nginx: ..." for a stack-specific hint, bare text for the generic "[any]" one. */
-function fixText(f: Finding): string | undefined {
+export function fixText(f: Finding): string | undefined {
   if (!f.fix) return undefined;
   return f.fix.how
     .split('\n')

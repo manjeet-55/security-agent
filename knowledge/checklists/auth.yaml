@@ -1,0 +1,137 @@
+area: auth
+title: Authentication and sessions
+order: 2
+items:
+  - id: auth-password-storage
+    title: Passwords are hashed with argon2id, bcrypt or scrypt
+    severity: high
+    applies_if: The project stores user passwords
+    why: When the database leaks (backup, SQL injection, a stolen laptop), fast or unsalted hashes such as MD5 or SHA-256 are cracked in hours, and people reuse those passwords elsewhere.
+    look_for:
+      - 'Where a password is saved at sign-up and on password change: bcrypt.hash, argon2.hash, scrypt, passlib, Django make_password, Spring PasswordEncoder.'
+      - 'Weak patterns: md5(, sha1(, createHash(''sha256'').update(password), a password column stored as plain text, or a home-made salt and hash.'
+      - Cost settings (bcrypt rounds of at least 10, argon2 memory and time parameters).
+    fail_if: Any password is stored in plain text, encrypted reversibly, or hashed with a fast general-purpose hash.
+    pass_if: Every password is hashed with argon2id, bcrypt or scrypt with a sensible cost, through one shared function.
+    evidence: file:line of the hash call and its cost setting.
+    fix: Use argon2id or bcrypt; re-hash legacy hashes on the next successful login.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+
+  - id: auth-login-throttling
+    title: Login, password reset and one-time-code endpoints limit attempts
+    severity: high
+    applies_if: The project has its own login, reset or OTP flow
+    why: Without limits, attackers try leaked password lists against every account (credential stuffing) or guess 6-digit codes in minutes.
+    look_for:
+      - 'Rate limiting on /login, /auth, /token, /reset, /otp, /verify, per IP and per account (express-rate-limit, @nestjs/throttler, django-axes, a WAF rule).'
+      - 'Lockout or backoff after repeated failures, and a cap on attempts per one-time code.'
+    fail_if: Any of these endpoints accepts unlimited attempts per account or per IP.
+    pass_if: Attempts are limited per account and per IP, codes expire after a few tries and a few minutes, and repeated failures slow down or need a CAPTCHA.
+    evidence: The limiter configuration on each auth endpoint (file:line).
+    fix: Add per-account and per-IP limits to every auth endpoint, invalidate a one-time code after 5 wrong tries, and add bot protection after failures.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html
+
+  - id: auth-jwt
+    title: JWTs are verified with a fixed algorithm, a strong key and an expiry
+    severity: high
+    applies_if: The project issues or accepts JSON Web Tokens
+    why: A token that is decoded but not verified, accepts alg none, is signed with a guessable secret, or never expires lets attackers forge or replay logins.
+    look_for:
+      - 'jwt.decode( used where jwt.verify( is needed; verify calls without an algorithms list; libraries configured to accept none.'
+      - 'The signing secret: hard-coded, short or default (secret, changeme), or shared between environments.'
+      - 'expiresIn / exp: missing or long-lived access tokens; refresh tokens that are never rotated or revoked; tokens kept in localStorage, where any XSS can read them.'
+      - 'Validation of iss and aud when tokens come from an identity provider.'
+    fail_if: Tokens are not verified, the algorithm is not fixed, the key is weak or hard-coded, or access tokens do not expire.
+    pass_if: Every token is verified with a fixed algorithm and a strong key from the secret store, access tokens expire within minutes to hours, and refresh tokens rotate and can be revoked.
+    evidence: file:line of signing and verification, the algorithm, the expiry, and where the key comes from.
+    fix: Verify with an explicit algorithms list, load a long random key (or use asymmetric keys) from the secret store, set short expiries, and keep tokens in HttpOnly cookies where possible.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_Cheat_Sheet.html
+
+  - id: auth-session-lifecycle
+    title: Sessions are renewed at login and destroyed at logout
+    severity: medium
+    applies_if: The app keeps a server-side session or a refresh token
+    why: A session id that survives login can be planted by an attacker (session fixation); one that survives logout or a password change keeps a stolen session alive.
+    look_for:
+      - 'Session renewal at login: req.session.regenerate, Django cycle_key (done by login()), Spring session fixation protection.'
+      - 'Logout: the server-side session or refresh token is destroyed or revoked, not only the cookie cleared.'
+      - 'Password change and "log out everywhere": other sessions and refresh tokens are revoked.'
+      - Idle and absolute session timeouts.
+    fail_if: The session id stays the same across login, or logout and password change leave sessions or refresh tokens valid.
+    pass_if: A new session id is issued at login, logout revokes on the server, a password change ends other sessions, and sessions time out.
+    evidence: file:line of login, logout and password-change session handling, and the timeout settings.
+    fix: Regenerate on login, revoke on logout and password change, and set idle and absolute timeouts.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
+    automated_by: [cookie-flags]
+
+  - id: auth-password-reset
+    title: Reset tokens are random, single-use and short-lived, and the reset link is not built from the request
+    severity: high
+    applies_if: The project has a "forgot password" flow
+    why: Predictable or long-lived reset tokens let attackers take over accounts. A reset link built from the request's Host header can be pointed at the attacker's site, so the victim's token goes there (host header poisoning).
+    look_for:
+      - 'Token generation: crypto.randomBytes / secrets.token_urlsafe are fine; Math.random, timestamps, user ids or UUID v1 are not.'
+      - 'Expiry (minutes, not days), deletion after use, and whether tokens are stored hashed.'
+      - 'How the link is built: from a configured base URL, or from req.headers.host / request.get_host().'
+    fail_if: Tokens are predictable, reusable, valid for days, or the link's host comes from the request.
+    pass_if: Tokens are random (at least 128 bits), single-use, expire within an hour, are stored hashed, and links use a configured base URL.
+    evidence: file:line of token creation, expiry, use, and link building.
+    fix: Generate with a CSPRNG, store a hash, expire and delete after use, and build links from configuration.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
+
+  - id: auth-user-enumeration
+    title: Login, sign-up and reset do not reveal whether an account exists
+    severity: low
+    applies_if: The project has its own login, sign-up or reset flow
+    why: Messages such as "no account with this email" let attackers build a list of valid accounts to target with password guessing and phishing.
+    look_for:
+      - 'Different error messages or status codes for "unknown user" and "wrong password", and for reset requests on unknown emails.'
+      - Noticeably faster responses for unknown users (no hash computed).
+    fail_if: Responses differ in message, status or timing between existing and non-existing accounts.
+    pass_if: The same message and status are returned in both cases (for example "If an account exists, we sent an email").
+    evidence: The error messages in the login and reset handlers (file:line).
+    fix: Return one generic message, and run the password hash even for unknown users.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html
+
+  - id: auth-mfa-admin
+    title: Admin and privileged accounts require multi-factor authentication
+    severity: medium
+    applies_if: The project has admin, staff or back-office users
+    why: One phished or reused admin password gives full control. A second factor stops most account takeovers.
+    look_for:
+      - 'How admins log in: the app''s own login, or SSO through an identity provider.'
+      - Whether MFA (TOTP, WebAuthn/passkeys, or the identity provider's MFA) is enforced for admin roles, not just offered.
+    fail_if: An admin can log in with a password alone.
+    pass_if: MFA is enforced for every privileged account, in the app or the identity provider.
+    evidence: The MFA enforcement setting or code path for admin roles.
+    fix: Enforce MFA for admin roles, preferably through SSO with the identity provider's MFA or passkeys.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html
+
+  - id: auth-default-accounts
+    title: No default, seeded or test accounts and no master passwords in production
+    severity: high
+    why: Attackers try admin/admin and the credentials in public seed scripts first. A hard-coded master password or debug login bypass is a back door.
+    look_for:
+      - 'Seed and migration scripts that create users with fixed passwords (admin, password, changeme, 123456).'
+      - 'Code that bypasses authentication: a master password from an environment variable, if (env === "dev") skip auth, debug or impersonation routes.'
+      - Default credentials of bundled tools (database, admin panels, Grafana, RabbitMQ) in docker-compose or Helm values.
+    fail_if: A default or test account, a fixed password, or an authentication bypass can be active in production.
+    pass_if: Seeds with accounts run only outside production, bundled tools use generated credentials, and there is no bypass path.
+    evidence: The seed scripts and the configuration that keeps them out of production.
+    fix: Remove bypasses, run seeds only in development, and generate first-admin credentials at setup.
+    source_url: https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/
+
+  - id: auth-oauth
+    title: OAuth and social login check state, exact redirect URIs and token claims
+    severity: medium
+    applies_if: The project uses OAuth 2.0, OpenID Connect or social login
+    why: A missing state parameter, a loose redirect URI or an unchecked ID token lets attackers log in as someone else or steal authorization codes.
+    look_for:
+      - 'The state (and for public clients, PKCE) parameter in the authorization request and its check in the callback (passport strategies, next-auth / Auth.js, Spring OAuth2 client).'
+      - Redirect URIs registered with the provider as exact URLs, not wildcards or whole domains.
+      - 'ID token checks: signature, iss, aud, exp and nonce; accounts linked by a verified email only.'
+    fail_if: State or PKCE is missing, redirect URIs are wildcards, or tokens are accepted without checking issuer and audience.
+    pass_if: The library's defaults for state, PKCE and token validation are on, and redirect URIs are exact.
+    evidence: The OAuth client configuration (file:line) and the provider's registered redirect URIs.
+    fix: Use a maintained library with state, PKCE and token validation enabled, and register exact redirect URIs.
+    source_url: https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html

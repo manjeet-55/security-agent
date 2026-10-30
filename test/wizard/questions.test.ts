@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateProject, type ProjectConfig } from '../../src/project/schema.js';
-import { askPlan, targetIdFor, type AskDeps } from '../../src/wizard/questions.js';
+import { askPlan, collectorSteps, targetIdFor, type AskDeps } from '../../src/wizard/questions.js';
 import { ScriptedPrompter } from '../helpers/prompter.js';
 import { fixtureEnvelope } from '../helpers/snapshots.js';
 
@@ -184,20 +184,19 @@ describe('askPlan', () => {
 
   describe('an existing project', () => {
     it('Scan again asks only for consent', async () => {
-      const p = new ScriptedPrompter(['again', true]);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter([true]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'again' }));
       p.done();
-      expect(p.asked).toEqual(['This project is already set up. What now?', 'I own these systems or have written permission to test them']);
+      expect(p.asked).toEqual(['I own these systems or have written permission to test them']);
       expect(plan?.groups).toEqual(['code', 'web', 'host']);
       expect(plan?.config).toEqual(existing());
     });
 
     it('Change settings starts from the current answers', async () => {
-      const p = new ScriptedPrompter(['change', undefined, undefined, true, false, undefined, true, false, true]);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter([undefined, undefined, true, false, undefined, true, false, true]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'change' }));
       p.done();
       expect(p.asked).toEqual([
-        'This project is already set up. What now?',
         'Project name',
         'What should I check?',
         'Keep these websites and APIs? https://portal.example.com',
@@ -213,8 +212,8 @@ describe('askPlan', () => {
     });
 
     it('declining consent on Scan again can fall back to the code only, leaving the saved settings alone', async () => {
-      const p = new ScriptedPrompter(['again', false, 'code']);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter([false, 'code']);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'again' }));
       p.done();
       expect(plan).toMatchObject({ groups: ['code'], snapshots: [] });
       expect(plan?.config).toEqual(existing());
@@ -222,18 +221,26 @@ describe('askPlan', () => {
     });
 
     it('declining consent on Scan again can go back into the questions', async () => {
-      const p = new ScriptedPrompter(['again', false, 'back', undefined, undefined, true, false, undefined, true, false, true]);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter([false, 'back', undefined, undefined, true, false, undefined, true, false, true]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'again' }));
       p.done();
       expect(plan?.consentAt).toEqual(NOW);
       expect(plan?.config.targets).toEqual(existing().targets);
     });
 
     it('Start over asks everything again with nothing kept', async () => {
-      const p = new ScriptedPrompter(['fresh', 'newname', ['code']]);
-      const plan = await askPlan(p, deps({ existing: existing() }));
+      const p = new ScriptedPrompter(['newname', ['code']]);
+      const plan = await askPlan(p, deps({ existing: existing(), start: 'fresh' }));
       p.done();
       expect(plan?.config).toMatchObject({ name: 'newname', targets: [], hosts: [] });
     });
+  });
+});
+
+describe('collectorSteps', () => {
+  it('says how to run the collector on the server and what to bring back', () => {
+    expect(collectorSteps('/work/shop/.secagent/hosts/web-1/collector.sh', 'web-1')).toBe(
+      'Copy /work/shop/.secagent/hosts/web-1/collector.sh to web-1, read it, then run it there:\n  sudo sh collector.sh > web-1.json\nand bring web-1.json back.',
+    );
   });
 });

@@ -4,7 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { PassThrough } from 'node:stream';
 import path from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
-import { formatScan, main, parseHostSpec, parseTargetSpec, UsageError } from '../src/cli.js';
+import { formatScan, main, OPTIONS, parseHostSpec, parseTargetSpec, UsageError } from '../src/cli.js';
+import { COMMANDS } from '../src/help/commands.js';
 import { COLLECTOR_PATH } from '../src/host/collector.js';
 import { SnapshotStore } from '../src/host/store.js';
 import { initProject } from '../src/project/init.js';
@@ -147,7 +148,7 @@ describe('main', () => {
   });
 
   describe('guided scan', () => {
-    const answers = () => new ScriptedPrompter([undefined, ['code'], 'exit']);
+    const answers = () => new ScriptedPrompter([undefined, undefined, ['code'], 'exit']);
 
     it('start without a terminal says to use init and scan instead', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -374,5 +375,62 @@ describe('host commands', () => {
     await new SnapshotStore(dir, () => FIXED_NOW).add('web-1', readFileSync(new URL('./fixtures/collector/ubuntu-24-04.json', import.meta.url), 'utf8'));
     expect(await main(['learn', '--dir', dir], { advisories: fixtureAdvisories(await tempDir()), now: () => FIXED_NOW })).toBe(0);
     expect(log).toHaveBeenCalledWith(expect.stringMatching(/^web-1: \d+ packages checked against Ubuntu:24\.04:LTS/));
+  });
+});
+
+describe('help', () => {
+  const COMMAND_WORDS = ['start', 'init', 'scan', 'report', 'accept', 'checklist', 'collector', 'snapshot', 'verify', 'learn', 'mcp', 'doctor', 'eval', 'kb', 'version', 'help'];
+
+  it('help, --help and -h print the overview: where to start, the steps, the commands by task', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    for (const args of [['help'], ['--help'], ['-h']]) expect(await main(args)).toBe(0);
+    expect(log).toHaveBeenCalledTimes(3);
+    const text = String(log.mock.calls[0]?.[0]);
+    expect(text).toContain('Start here');
+    expect(text).toContain('Scan and report');
+  });
+
+  it('every command answers --help with its own page and runs nothing', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dir = await tempDir();
+    for (const word of COMMAND_WORDS) {
+      log.mockClear();
+      expect(await main([word, '--help', '--dir', dir])).toBe(0);
+      expect(String(log.mock.calls[0]?.[0])).toMatch(new RegExp(`^secagent ${word}`));
+    }
+    expect(existsSync(path.join(dir, '.secagent'))).toBe(false);
+  });
+
+  it('help <command> and help <guide> print that page; an unknown name exits 1 with a suggestion', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await main(['help', 'snapshot', 'add'])).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^secagent snapshot add · /));
+    expect(await main(['help', 'servers'])).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('Checking a server'));
+    expect(await main(['help', 'chekclist'])).toBe(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Did you mean "checklist"?'));
+  });
+
+  it('an unknown command suggests the closest one instead of printing every command', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await main(['chekclist'])).toBe(1);
+    expect(error).toHaveBeenCalledWith('Unknown command "chekclist". Did you mean "checklist"?\nRun secagent help to see every command and guide.');
+    expect(error.mock.calls.flat().join('\n')).not.toContain('Scan and report');
+  });
+
+  it("a usage error points at the command's page; a bad option also shows its usage line", async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await main(['init', '--bogus'])).toBe(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Usage: secagent init [--name <name>]'));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Run secagent help init for details.'));
+    expect(await main(['accept', '--dir', await tempDir()])).toBe(1);
+    expect(error).toHaveBeenCalledWith('Run secagent help accept for details.');
+  });
+
+  it("documents exactly the options each command's parser takes", () => {
+    const parsers = OPTIONS as Record<string, Record<string, unknown>>;
+    for (const c of COMMANDS) expect([c.name, c.options.map((o) => o.name).sort()]).toEqual([c.name, Object.keys(parsers[c.name] ?? {}).sort()]);
+    for (const name of Object.keys(OPTIONS)) expect(COMMANDS.map((c) => c.name)).toContain(name);
   });
 });

@@ -1,8 +1,9 @@
 import type { CheckInstance } from '../checks/catalog.js';
+import type { Checklist } from './checklist.js';
 import type { Lesson } from './lesson.js';
 
-/** The overview read first: one line per lesson and per check instance. */
-export function renderIndex(lessons: readonly Lesson[], checks: readonly CheckInstance[]): string {
+/** The overview read first: one line per lesson, per check instance and per review checklist item. */
+export function renderIndex(lessons: readonly Lesson[], checks: readonly CheckInstance[], checklists: readonly Checklist[] = []): string {
   const lines = [
     '# secagent knowledge index',
     '',
@@ -17,5 +18,11 @@ export function renderIndex(lessons: readonly Lesson[], checks: readonly CheckIn
     ...[...checks].sort((a, b) => a.id.localeCompare(b.id)).map((c) => `- \`${c.id}\` (${c.type}, ${c.severity}, ${c.applies_to.join('/')}): ${c.title}`),
     '',
   ];
+  if (checklists.length > 0) {
+    lines.push('## Review checklists', '', 'Rules a person or an AI assistant checks by reading the code and configuration (`secagent checklist`, MCP `get_checklist`).', '');
+    for (const list of checklists) {
+      lines.push(`### ${list.title} (\`${list.area}\`)`, '', ...list.items.map((i) => `- \`${i.id}\` (${i.severity}${i.automated_by.length > 0 ? ', in part automated' : ''}): ${i.title}`), '');
+    }
+  }
   return lines.join('\n');
 }

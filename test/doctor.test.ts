@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doctor } from '../src/doctor.js';
+import { doctor, formatDoctor } from '../src/doctor.js';
 import { FIXED_NOW } from './helpers/ctx.js';
 import { makeProject } from './helpers/project.js';
 import { tempDir } from './helpers/tmp.js';
@@ -29,5 +29,14 @@ describe('doctor', () => {
   it('--offline skips the network check', async () => {
     const lines = await doctor(await makeProject(), { now: () => FIXED_NOW, offline: true, fetchImpl: unreachable });
     expect(text(lines)).not.toContain('OSV');
+  });
+
+  it('formatDoctor prints a mark per line with its fix below, a summary, and exit code 1 only on a failure', () => {
+    expect(formatDoctor([{ level: 'ok', text: 'Node 22.0.0' }, { level: 'warn', text: 'No scan yet', fix: 'Run: secagent scan' }])).toEqual({
+      lines: ['✓ Node 22.0.0', '! No scan yet', '    Run: secagent scan', '\nWorks, with 1 thing(s) worth a look.'],
+      code: 0,
+    });
+    expect(formatDoctor([{ level: 'fail', text: 'Node 18.19.0 is too old', fix: 'Install Node 20.19 or newer (https://nodejs.org).' }]).code).toBe(1);
+    expect(formatDoctor([{ level: 'ok', text: 'git is installed' }]).lines.at(-1)).toBe('\nAll good.');
   });
 });
